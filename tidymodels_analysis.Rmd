@@ -1,0 +1,471 @@
+---
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, comment = "")
+
+library(tidyverse)
+library(nortest)
+library(FSA)
+library(tidymodels)
+library(factoextra)
+library(plotly)
+library(usemodels)
+library(ranger)
+library(vip)
+
+```
+
+## Dysregulation of hemoglobin and oxygenation in cerebral malaria {.tabset}
+
+```{r data}
+
+# read in data
+df_hbox <- read.csv("Data/98 first visit records with cerebral oxygenation stats_trimmed.csv") %>% as_tibble()
+
+# get rid of "Other"
+df_hbox <- df_hbox %>% 
+  filter(Status != "Other") %>% 
+  mutate(Status = factor(Status, levels = c("HV", "UM", "CM")))
+
+# identify duplicated rows (TM0003, TM2001)
+df_hbox <- df_hbox %>% filter(duplicated(Subject.ID..NIAID.) == FALSE)
+
+# Convert age to numeric
+df_hbox <- df_hbox %>% 
+  mutate(Age = gsub(" Years, ", "_", Age)) %>% 
+  mutate(Age = gsub(" Months ", "", Age)) %>% 
+  separate(Age, into = c("Years", "Months"), sep = "_") %>% 
+  mutate(Years = as.numeric(Years)) %>% 
+  mutate(Months = as.numeric(Months)/12) %>% 
+  mutate(Age = Years + Months) %>% 
+  select(-c(Years, Months))
+
+# Convert sex to factor
+df_hbox <- df_hbox %>% mutate(Sex = as.factor(Sex))
+
+# Trim for variables of interest (VOI)
+df_hbox_trim <- df_hbox %>% 
+  dplyr::select(c(Subject.ID..NIAID., Status, Glucose, Hematocrit, Lactate, Temperature,
+                  Arginine.umol.L, Haptoglobin..mg.dl., Hemoglobin..uM., Whole.Blood.Nitrite, 
+                  cerebral.hbdeox, cerebral.hbdeox.alpha, cerebral.hbox, cerebral.hbox.alpha,
+                  cerebral.sat, cerebral.sat.alpha, cerebral.thc, cerebral.thc.alpha, cerebral.thc.norm.std)) %>% 
+  
+  dplyr::rename("subject_id" = "Subject.ID..NIAID.", "Arginine (umol/L)" = "Arginine.umol.L", "Haptoglobin (mg/dL)" = "Haptoglobin..mg.dl.", 
+                "Hemoglobin (uM)" = "Hemoglobin..uM.", "WB_Nitrite" = "Whole.Blood.Nitrite", "DeoxyHb" = "cerebral.hbdeox", 
+                "DeoxyHb_alpha" = "cerebral.hbdeox.alpha", "OxyHb" = "cerebral.hbox", "OxyHb_alpha" = "cerebral.hbox.alpha", 
+                "O2sat" = "cerebral.sat", "O2sat_alpha" = "cerebral.sat.alpha", "THC" = "cerebral.thc", 
+                "THC_alpha" = "cerebral.thc.alpha", "THC_sd" = "cerebral.thc.norm.std") 
+
+# impute missing data with median by group
+f_impute <- function(x, na.rm = TRUE) (replace(x, is.na(x), median(x, na.rm = na.rm)))
+
+df_hbox_impute <- df_hbox_trim %>% 
+  group_by(Status) %>% 
+  mutate_at(3:ncol(.), f_impute) %>% 
+  ungroup()
+
+# pivot long
+df_hbox_long <- df_hbox_trim %>% pivot_longer(cols = 3:ncol(.), names_to = "measurement", values_to = "value")
+
+```
+
+### Exploratory analysis 
+
+#### Histogram to explore normality of data
+```{r plot1, fig.width = 15, fig.height = 8}
+
+df_hbox_long %>% 
+  
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 20) +
+  facet_grid(Status ~ measurement, scales = "free") +
+  
+  theme(strip.text.y = element_text(size = 15),
+        strip.text.x = element_text(size = 11),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 15),
+        axis.text = element_text(size = 12),
+        axis.text.x = element_text(angle = 45, hjust = 0.9))
+
+```
+
+#### Plots of all the variables by status
+```{r plot2, fig.width = 15, fig.height = 15}
+
+df_hbox_long %>% 
+  
+  ggplot(aes(x = Status, y = value)) +
+  geom_violin(aes(color = Status)) +
+  geom_jitter(position = position_jitter(0.2), shape = 1) +
+  stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
+  facet_wrap(~measurement, scales = "free_y") +
+  
+  theme_bw() +
+  theme(legend.position = "none")  +
+  
+  theme(strip.text = element_text(size = 15),
+        axis.title = element_text(size = 15),
+        axis.title.y = element_blank(),
+        axis.text = element_text(size = 15))
+
+```
+
+### PCA 
+
+#### Can we cluster patients based on available variables? 
+
+```{r pca_data}
+
+# convert tibble to df
+df_hbox_impute_df <- df_hbox_impute %>% select(-c(subject_id, Status)) %>% as.data.frame(df_hbox_impute) 
+rownames(df_hbox_impute_df) <- df_hbox_impute$subject_id
+
+# compute PCA
+my_pca <- prcomp(df_hbox_impute_df, scale = TRUE)
+
+# define groups
+groups <- as.factor(df_hbox_impute$Status)
+
+# Eigenvalues
+pca_eig_val <- get_eigenvalue(my_pca)
+
+# Results for Variables
+pca_res_var <- get_pca_var(my_pca)
+
+# Results for individuals
+pca_res_ind <- get_pca_ind(my_pca)
+
+```
+
+#### 2D PCA
+```{r pca_2d, fig.width = 10, fig.height = 10}
+
+p_pca <- fviz_pca_ind(my_pca,
+                      col.ind = groups, # color by groups
+                      palette = c("#00AFBB",  "#FC4E07", "#7CAE00"),
+                      addEllipses = TRUE, # Concentration ellipses
+                      ellipse.type = "confidence",
+                      legend.title = "Groups",
+                      repel = TRUE
+)
+
+p_pca$layers[[4]] <- NULL # get rid of text labels
+
+p_pca
+
+```
+
+#### Biplot
+```{r pca_biplot, fig.width = 12, fig.height = 12}
+
+# Biplot of individuals and variables
+p_biplot <- fviz_pca_biplot(my_pca, repel = TRUE,
+                            col.var = "black", # Variables color
+                            col.ind = groups  # Individuals color
+)
+
+p_biplot$layers[[3]] <- NULL
+p_biplot$layers[[2]] <- NULL
+
+p_biplot
+
+```
+
+#### Determine biggest contributors to each PC
+```{r pca_contrib}
+
+df_pca_contrib <- pca_res_var$contrib %>% 
+  as_tibble(rownames = "variable") %>% 
+  arrange(-Dim.1, -Dim.2)
+
+df_contrib <- tibble(Dim.1 = paste0(df_pca_contrib$variable, 
+                                    sep = ": ", 
+                                    round(df_pca_contrib$Dim.1, 2)),
+                     Dim.2 = paste0(arrange(df_pca_contrib, -Dim.2)$variable, 
+                                    sep = ": ", 
+                                    round(arrange(df_pca_contrib, -Dim.2)$Dim.2, 2)),
+                     Dim.3 = paste0(arrange(df_pca_contrib, -Dim.3)$variable, 
+                                    sep = ": ", 
+                                    round(arrange(df_pca_contrib, -Dim.3)$Dim.3, 2)))
+
+df_contrib %>% as.data.frame()
+
+```
+
+#### 3D PCA
+
+```{r pca_3d}
+
+df_pca <- pca_res_ind$coord %>% 
+  as_tibble(rownames = "subject") %>% 
+  mutate(Status = df_hbox_impute$Status)
+
+plot_ly(x = df_pca$Dim.1, y = df_pca$Dim.2, z = df_pca$Dim.3, 
+        type = "scatter3d", mode = "markers", color = df_pca$Status)
+
+
+```
+
+### Random forest predictive modeling: all data 
+
+#### Build, tune, and finalize model
+- Random forest model
+- bootstrap resampling (w/ replacement)
+- BoxCox transform all predictors, remove variables with zero variance, kNN imputation
+- tune for optimal ROC AUC and accuracy
+
+```{r model1}
+
+# Data
+hbox_df <- df_hbox_trim %>% select(-subject_id)
+
+# Build a model
+
+  # split data set
+  set.seed(123)
+  hbox_split <- initial_split(hbox_df, strata = Status)
+  hbox_train <- training(hbox_split)
+  hbox_test <- testing(hbox_split)  
+  
+  # resamples (not a lot of data, need to use cross validation)
+  set.seed(234)
+  # vfold_cv(hbox_train, strata = Status) # test too small
+  hbox_folds <- bootstraps(hbox_train, strata = Status)
+  
+  # Scaffolding for setting up common types of models
+  # use_ranger(Status ~ ., data = hbox_df)
+  
+  # Copy usemodels code...
+  
+  # Create recipe
+  ranger_recipe <- 
+    recipe(formula = Status ~ ., data = hbox_df) %>% 
+    
+    # BoxCox transformation to normality
+    step_BoxCox(all_predictors(), -all_outcomes()) %>% 
+    
+    # remove variables with non-zero variance
+    step_nzv(all_predictors(), -all_outcomes()) %>% 
+    
+    # impute missing data using K-nearest neighbors
+    step_knnimpute(all_predictors(), -all_outcomes()) 
+  
+  # Model specifications (set for tuning)
+  ranger_spec <- 
+    rand_forest(mtry = tune(), min_n = tune(), trees = 1000) %>% 
+    set_mode("classification") %>% 
+    set_engine("ranger") 
+  
+  # Create workflow
+  ranger_workflow <- 
+    workflow() %>% 
+    add_recipe(ranger_recipe) %>% 
+    add_model(ranger_spec) 
+
+# Tune model
+
+  # Initial tune on bootstraps
+  set.seed(84374)
+  ranger_tune <-
+    tune_grid(ranger_workflow, 
+              resamples = hbox_folds, 
+              grid = 11)
+  
+# Finalize model
+
+  # finalize workflow
+  final_rf <- ranger_workflow %>% 
+    finalize_workflow(select_best(ranger_tune, metric = "accuracy")) 
+  
+  final_rs_res <- final_rf %>% 
+    fit_resamples(resamples = hbox_folds,
+                  metrics = metric_set(roc_auc, accuracy, sens, spec),
+                  control = control_resamples(save_pred = TRUE))
+  
+  hbox_fit <- last_fit(final_rf, hbox_split) # fitting to training data, evaluating on testing
+  
+```
+
+#### Results
+
+```{r model1_res}
+
+# computed on test set
+collect_metrics(hbox_fit) %>% select(.metric, .estimate) %>% as.data.frame()
+
+# collect predictions on test set
+df_pred <- collect_predictions(hbox_fit) %>%
+  select(c(Status, .pred_HV, .pred_UM, .pred_CM, .pred_class))
+
+df_pred %>% as_data_frame()
+  
+df_pred %>% filter(Status != .pred_class) %>% as.data.frame() # only got one wrong
+
+```
+
+```{r model1_plot_res}
+
+conf_mat_resampled(final_rs_res) %>% 
+  
+  ggplot(aes(x = Truth, y = Freq, fill = Prediction)) + 
+  geom_col(position = "dodge") +
+  ggtitle("Confusion matrix") +
+  theme_bw()
+
+```
+
+#### Determine variable importance
+```{r model1_imp}
+
+# new specification for ranger model
+imp_spec <- ranger_spec %>% 
+  finalize_model(select_best(ranger_tune, metric = "accuracy")) %>% 
+  set_engine("ranger", importance = "permutation")
+
+# plot importance 
+workflow() %>% 
+  add_recipe(ranger_recipe) %>% 
+  add_model(imp_spec) %>% 
+  fit(hbox_train) %>% 
+  pull_workflow_fit() %>% 
+  vip(aesthetics = list(alpha = 0.8, fill = "midnightblue")) +
+  
+  theme_bw() +
+  ggtitle("Variable importance")
+
+```
+
+### Random forest predictive modeling: NIRS data only
+
+#### Build, tune, and finalize model
+Same code, but built model only using variables measured using NIRS
+
+```{r model2}
+
+# Data
+hbox_df2 <- df_hbox_impute %>% 
+  select(c(Status, DeoxyHb, DeoxyHb_alpha, OxyHb, OxyHb_alpha, O2sat, O2sat_alpha, THC, THC_alpha, THC_sd))
+
+# Build a model
+
+  # split data set
+  set.seed(456)
+                hbox_split2 <- initial_split(hbox_df2, strata = Status)
+                hbox_train2 <- training(hbox_split2)
+                hbox_test2 <- testing(hbox_split2)  
+  
+  # resamples (not a lot of data, need to use cross validation)
+  set.seed(789)
+  hbox_folds2 <- bootstraps(hbox_train2, strata = Status)
+  
+  # Scaffolding for setting up common types of models
+  # use_ranger(Status ~ ., data = hbox_df2)
+  
+  # Copy usemodels code...
+  
+  # Create recipe
+  ranger_recipe2 <- 
+    recipe(formula = Status ~ ., data = hbox_df2) %>% 
+    
+    # BoxCox transformation to normality
+    step_BoxCox(all_predictors(), -all_outcomes()) %>% 
+    
+    # remove variables with non-zero variance
+    step_nzv(all_predictors(), -all_outcomes()) %>% 
+    
+    # impute missing data using K-nearest neighbors
+    step_knnimpute(all_predictors(), -all_outcomes()) 
+  
+  # Model specifications (set for tuning)
+  ranger_spec2 <- 
+    rand_forest(mtry = tune(), min_n = tune(), trees = 1000) %>% 
+    set_mode("classification") %>% 
+    set_engine("ranger") 
+  
+  # Create workflow
+  ranger_workflow2 <- 
+    workflow() %>% 
+    add_recipe(ranger_recipe2) %>% 
+    add_model(ranger_spec2) 
+  
+# Tune model
+
+  # Initial tune on bootstraps
+  set.seed(101112)
+  ranger_tune2 <-
+    tune_grid(ranger_workflow2, 
+              resamples = hbox_folds2, 
+              grid = 11)
+  
+# Finalize model
+
+  # finalize workflow
+  final_rf2 <- ranger_workflow2 %>% 
+    finalize_workflow(select_best(ranger_tune2, metric = "accuracy")) 
+  
+  
+  final_rs_res2 <- final_rf2 %>% 
+    fit_resamples(resamples = hbox_folds2,
+                  metrics = metric_set(roc_auc, accuracy, sens, spec),
+                  control = control_resamples(save_pred = TRUE))
+  
+  hbox_fit2 <- last_fit(final_rf2, hbox_split2) # fitting to training data, evaluating on testing
+  
+```
+
+#### Results
+
+```{r model2_res}
+
+# computed on test set
+collect_metrics(final_rs_res2) %>% select(.metric, mean, std_err, n) %>% as.data.frame()
+
+# collect predictions on test set
+df_pred2 <- collect_predictions(hbox_fit2) %>%
+  select(c(Status, .pred_HV, .pred_UM, .pred_CM, .pred_class))
+
+df_pred2 %>% as_data_frame()
+  
+df_pred2 %>% filter(Status != .pred_class) %>% as.data.frame() # only got one wrong
+
+```
+
+```{r model2_plot_res}
+
+conf_mat_resampled(final_rs_res2) %>% 
+  
+  ggplot(aes(x = Truth, y = Freq, fill = Prediction)) + 
+  geom_col(position = "dodge") +
+  ggtitle("Confusion matrix") +
+  theme_bw()
+
+```
+
+#### Determine variable importance
+```{r model2_imp}
+
+# new specification for ranger model
+imp_spec2 <- ranger_spec2 %>% 
+  finalize_model(select_best(ranger_tune2, metric = "accuracy")) %>% 
+  set_engine("ranger", importance = "permutation")
+
+# plot importance 
+workflow() %>% 
+  add_recipe(ranger_recipe2) %>% 
+  add_model(imp_spec2) %>% 
+  fit(hbox_train2) %>% 
+  pull_workflow_fit() %>% 
+  vip(aesthetics = list(alpha = 0.8, fill = "midnightblue")) +
+
+  theme_bw() +
+  ggtitle("Variable importance")
+
+```
+
+
+
+
+

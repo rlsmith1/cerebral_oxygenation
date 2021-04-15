@@ -102,8 +102,6 @@
 
 # Use PCA to explore if these variables cluster Status --------------------
 
-     
-
         # convert tibble to df
         df_hbox_impute_df <- df_hbox_impute %>% select(-c(subject_id, Status)) %>% as.data.frame(df_hbox_impute) 
         rownames(df_hbox_impute_df) <- df_hbox_impute$subject_id
