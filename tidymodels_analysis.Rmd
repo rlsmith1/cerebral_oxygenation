@@ -170,7 +170,7 @@ df_pnts %>%
 ```
 
 #### Biplot
-```{r pca_biplot, fig.width = 12, fig.height = 12}
+```{r pca_biplot, fig.width = 10, fig.height = 10}
 
 df_vars <- my_pca$rotation %>% as_tibble() %>% mutate(variable = rownames(my_pca$rotation))
 
