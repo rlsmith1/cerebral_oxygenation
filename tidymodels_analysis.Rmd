@@ -11,14 +11,22 @@ library(nortest)
 library(FSA)
 library(tidymodels)
 library(factoextra)
+library(ggpubr)
+library(ggrepel)
+library(grid)
+library(pheatmap)
 library(plotly)
+library(corrr)
+library(reshape)
+library(RColorBrewer)
 library(usemodels)
 library(ranger)
 library(vip)
+library(MASS)
 
 ```
 
-## Dysregulation of hemoglobin and oxygenation in cerebral malaria {.tabset}
+# Dysregulation of hemoglobin and oxygenation in cerebral malaria {.tabset}
 
 ```{r data}
 
@@ -41,7 +49,7 @@ df_hbox <- df_hbox %>%
   mutate(Years = as.numeric(Years)) %>% 
   mutate(Months = as.numeric(Months)/12) %>% 
   mutate(Age = Years + Months) %>% 
-  select(-c(Years, Months))
+  dplyr::select(-c(Years, Months))
 
 # Convert sex to factor
 df_hbox <- df_hbox %>% mutate(Sex = as.factor(Sex))
@@ -72,7 +80,7 @@ df_hbox_long <- df_hbox_trim %>% pivot_longer(cols = 3:ncol(.), names_to = "meas
 
 ```
 
-### Exploratory analysis 
+## Exploratory analysis 
 
 #### Histogram to explore normality of data
 ```{r plot1, fig.width = 15, fig.height = 8}
@@ -113,14 +121,14 @@ df_hbox_long %>%
 
 ```
 
-### PCA 
+## PCA 
 
 #### Can we cluster patients based on available variables? 
 
 ```{r pca_data}
 
 # convert tibble to df
-df_hbox_impute_df <- df_hbox_impute %>% select(-c(subject_id, Status)) %>% as.data.frame(df_hbox_impute) 
+df_hbox_impute_df <- df_hbox_impute %>% dplyr::select(-c(subject_id, Status)) %>% as.data.frame(df_hbox_impute) 
 rownames(df_hbox_impute_df) <- df_hbox_impute$subject_id
 
 # compute PCA
@@ -143,34 +151,54 @@ pca_res_ind <- get_pca_ind(my_pca)
 #### 2D PCA
 ```{r pca_2d, fig.width = 10, fig.height = 10}
 
-p_pca <- fviz_pca_ind(my_pca,
-                      col.ind = groups, # color by groups
-                      palette = c("#00AFBB",  "#FC4E07", "#7CAE00"),
-                      addEllipses = TRUE, # Concentration ellipses
-                      ellipse.type = "confidence",
-                      legend.title = "Groups",
-                      repel = TRUE
-)
+df_pnts <- my_pca$x %>% as_tibble() %>% mutate(group = groups)
 
-p_pca$layers[[4]] <- NULL # get rid of text labels
+df_pnts %>% 
+  
+  ggplot(aes(x = PC1, y = PC2, color = group, fill = group)) +
+  geom_point(size = 3) +
+  stat_conf_ellipse(level = 0.95, npoint = 100, bary = TRUE, alpha = 0.1, geom = "polygon") +
+  stat_mean(aes(shape = group), na.rm = FALSE) +
+  geom_vline(xintercept = 0, lty = 2, color = "black") +
+  geom_hline(yintercept = 0, lty = 2, color = "black") +
+  
+  xlab(paste0("PC1: ", round(pca_eig_val$variance.percent[1], 2), "% of variance")) +
+  ylab(paste0("PC1: ", round(pca_eig_val$variance.percent[2], 2), "% of variance")) +
 
-p_pca
+  theme_bw() 
 
 ```
 
 #### Biplot
 ```{r pca_biplot, fig.width = 12, fig.height = 12}
 
-# Biplot of individuals and variables
-p_biplot <- fviz_pca_biplot(my_pca, repel = TRUE,
-                            col.var = "black", # Variables color
-                            col.ind = groups  # Individuals color
-)
+df_vars <- my_pca$rotation %>% as_tibble() %>% mutate(variable = rownames(my_pca$rotation))
 
-p_biplot$layers[[3]] <- NULL
-p_biplot$layers[[2]] <- NULL
+# plot
 
-p_biplot
+  # plot patients
+  ggplot() +
+  geom_point(data = df_pnts, mapping = aes(x = PC1, y = PC2, color = group), 
+             size = 3) +
+  stat_conf_ellipse(data = df_pnts, mapping = aes(x = PC1, y = PC2, color = group, fill = group),
+                    level = 0.95, npoint = 100, bary = TRUE, alpha = 0.1, geom = "polygon") +
+  stat_mean(data = df_pnts, mapping = aes(x = PC1, y = PC2, color = group, shape = group),
+            na.rm = FALSE) +
+  
+  # plot variables
+  geom_point(data = df_vars, aes(x = PC1*10, y = PC2*10)) +
+  geom_text_repel(data = df_vars, aes(x = PC1*10, y = PC2*10, label = variable, size = 10), show.legend = FALSE) +
+  geom_segment(data = df_vars, aes(x = 0, y = 0, xend = PC1*10, yend = PC2*10), arrow = arrow()) +
+
+  # draw lines
+  geom_vline(xintercept = 0, lty = 2, color = "black") +
+  geom_hline(yintercept = 0, lty = 2, color = "black") +
+  
+  # design
+  xlab(paste0("PC1: ", round(pca_eig_val$variance.percent[1], 2), "% of variance")) +
+  ylab(paste0("PC1: ", round(pca_eig_val$variance.percent[2], 2), "% of variance")) +
+
+  theme_bw() 
 
 ```
 
@@ -201,7 +229,7 @@ df_contrib %>% as.data.frame()
 
 df_pca <- pca_res_ind$coord %>% 
   as_tibble(rownames = "subject") %>% 
-  mutate(Status = df_hbox_impute$Status)
+  mutate(Status = factor(df_hbox_impute$Status, levels = c("UM", "HV", "CM")))
 
 plot_ly(x = df_pca$Dim.1, y = df_pca$Dim.2, z = df_pca$Dim.3, 
         type = "scatter3d", mode = "markers", color = df_pca$Status)
@@ -209,7 +237,27 @@ plot_ly(x = df_pca$Dim.1, y = df_pca$Dim.2, z = df_pca$Dim.3,
 
 ```
 
-### Random forest predictive modeling: all data 
+## Variable correlations
+
+```{r correlation, fig.heigh = 10, fig.width = 10}
+
+m_cor <- df_hbox_impute %>% dplyr::select(-c(subject_id, Status)) %>% cor()
+
+melt(m_cor) %>% 
+  ggplot(aes(x = X1, y = X2, fill = value, label = round(value,2))) + 
+  geom_tile() +
+  scale_fill_gradient2(low = "#4575b4", high = "#d73027") +
+  geom_text(size = 3) +
+  
+  xlab("") +
+  ylab("") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 0.9))
+
+```
+
+## Random forest predictive modeling {.tabset} 
+
+### All variables 
 
 #### Build, tune, and finalize model
 - Random forest model
@@ -220,7 +268,7 @@ plot_ly(x = df_pca$Dim.1, y = df_pca$Dim.2, z = df_pca$Dim.3,
 ```{r model1}
 
 # Data
-hbox_df <- df_hbox_trim %>% select(-subject_id)
+hbox_df <- df_hbox_trim %>% dplyr::select(-subject_id)
 
 # Build a model
 
@@ -294,13 +342,13 @@ hbox_df <- df_hbox_trim %>% select(-subject_id)
 ```{r model1_res}
 
 # computed on test set
-collect_metrics(hbox_fit) %>% select(.metric, .estimate) %>% as.data.frame()
+collect_metrics(hbox_fit) %>% dplyr::select(.metric, .estimate) %>% as.data.frame()
 
 # collect predictions on test set
 df_pred <- collect_predictions(hbox_fit) %>%
-  select(c(Status, .pred_HV, .pred_UM, .pred_CM, .pred_class))
+  dplyr::select(c(Status, .pred_HV, .pred_UM, .pred_CM, .pred_class))
 
-df_pred %>% as_data_frame()
+df_pred %>% as.data.frame()
   
 df_pred %>% filter(Status != .pred_class) %>% as.data.frame() # only got one wrong
 
@@ -310,8 +358,9 @@ df_pred %>% filter(Status != .pred_class) %>% as.data.frame() # only got one wro
 
 conf_mat_resampled(final_rs_res) %>% 
   
-  ggplot(aes(x = Truth, y = Freq, fill = Prediction)) + 
+  ggplot(aes(x = Truth, y = Freq, fill = Prediction, label = Freq)) + 
   geom_col(position = "dodge") +
+  geom_text(position = position_dodge(width = 0.9)) +
   ggtitle("Confusion matrix") +
   theme_bw()
 
@@ -338,7 +387,7 @@ workflow() %>%
 
 ```
 
-### Random forest predictive modeling: NIRS data only
+### NIRS variables only
 
 #### Build, tune, and finalize model
 Same code, but built model only using variables measured using NIRS
@@ -347,7 +396,7 @@ Same code, but built model only using variables measured using NIRS
 
 # Data
 hbox_df2 <- df_hbox_impute %>% 
-  select(c(Status, DeoxyHb, DeoxyHb_alpha, OxyHb, OxyHb_alpha, O2sat, O2sat_alpha, THC, THC_alpha, THC_sd))
+  dplyr::select(c(Status, DeoxyHb, DeoxyHb_alpha, OxyHb, OxyHb_alpha, O2sat, O2sat_alpha, THC, THC_alpha, THC_sd))
 
 # Build a model
 
@@ -421,13 +470,13 @@ hbox_df2 <- df_hbox_impute %>%
 ```{r model2_res}
 
 # computed on test set
-collect_metrics(final_rs_res2) %>% select(.metric, mean, std_err, n) %>% as.data.frame()
+collect_metrics(final_rs_res2) %>% dplyr::select(.metric, mean, std_err, n) %>% as.data.frame()
 
 # collect predictions on test set
 df_pred2 <- collect_predictions(hbox_fit2) %>%
-  select(c(Status, .pred_HV, .pred_UM, .pred_CM, .pred_class))
+  dplyr::select(c(Status, .pred_HV, .pred_UM, .pred_CM, .pred_class))
 
-df_pred2 %>% as_data_frame()
+df_pred2 %>% as.data.frame()
   
 df_pred2 %>% filter(Status != .pred_class) %>% as.data.frame() # only got one wrong
 
@@ -437,8 +486,9 @@ df_pred2 %>% filter(Status != .pred_class) %>% as.data.frame() # only got one wr
 
 conf_mat_resampled(final_rs_res2) %>% 
   
-  ggplot(aes(x = Truth, y = Freq, fill = Prediction)) + 
+  ggplot(aes(x = Truth, y = Freq, fill = Prediction, label = Freq)) + 
   geom_col(position = "dodge") +
+  geom_text(position = position_dodge(width = 1)) +
   ggtitle("Confusion matrix") +
   theme_bw()
 
@@ -465,6 +515,449 @@ workflow() %>%
 
 ```
 
+
+### Other variables 
+
+#### Build, tune, and finalize model
+Same code, but built model only using other variables (Arginine, lactate, hematocrit, temperature, whole blood nitrite, haptoglobin, glucose)
+
+```{r model3}
+
+# Data
+hbox_df3 <- df_hbox_impute %>% dplyr::select(-c(subject_id, DeoxyHb, DeoxyHb_alpha, OxyHb, OxyHb_alpha, O2sat, O2sat_alpha, THC, THC_alpha, THC_sd))
+
+# Build a model
+
+  # split data set
+  set.seed(1234)
+  hbox_split3 <- initial_split(hbox_df3, strata = Status)
+  hbox_train3 <- training(hbox_split3)
+  hbox_test3 <- testing(hbox_split3)  
+  
+  # resamples (not a lot of data, need to use cross validation)
+  set.seed(2345)
+  hbox_folds3 <- bootstraps(hbox_train3, strata = Status)
+  
+  # Copy usemodels code...
+  
+  # Create recipe
+  ranger_recipe3 <- 
+    recipe(formula = Status ~ ., data = hbox_df3) %>% 
+    
+    # BoxCox transformation to normality
+    step_BoxCox(all_predictors(), -all_outcomes()) %>% 
+    
+    # remove variables with non-zero variance
+    step_nzv(all_predictors(), -all_outcomes()) %>% 
+    
+    # impute missing data using K-nearest neighbors
+    step_knnimpute(all_predictors(), -all_outcomes()) 
+  
+  # Model specifications (set for tuning)
+  ranger_spec3 <- 
+    rand_forest(mtry = tune(), min_n = tune(), trees = 1000) %>% 
+    set_mode("classification") %>% 
+    set_engine("ranger") 
+  
+  # Create workflow
+  ranger_workflow3 <- 
+    workflow() %>% 
+    add_recipe(ranger_recipe3) %>% 
+    add_model(ranger_spec3) 
+
+# Tune model
+
+  # Initial tune on bootstraps
+  set.seed(8434)
+  ranger_tune3 <-
+    tune_grid(ranger_workflow3, 
+              resamples = hbox_folds3, 
+              grid = 11)
+  
+# Finalize model
+
+  # finalize workflow
+  final_rf3 <- ranger_workflow3 %>% 
+    finalize_workflow(select_best(ranger_tune3, metric = "accuracy")) 
+  
+  
+  final_rs_res3 <- final_rf3 %>% 
+    fit_resamples(resamples = hbox_folds3,
+                  metrics = metric_set(roc_auc, accuracy, sens, spec),
+                  control = control_resamples(save_pred = TRUE))
+  
+  hbox_fit3 <- last_fit(final_rf3, hbox_split3) # fitting to training data, evaluating on testing
+  
+```
+
+#### Results
+
+```{r model3_res}
+
+# computed on test set
+collect_metrics(final_rs_res3) %>% dplyr::select(.metric, mean, std_err, n) %>% as.data.frame()
+
+# collect predictions on test set
+df_pred3 <- collect_predictions(hbox_fit3) %>%
+  dplyr::select(c(Status, .pred_HV, .pred_UM, .pred_CM, .pred_class))
+
+df_pred3 %>% as.data.frame()
+  
+df_pred3 %>% filter(Status != .pred_class) %>% as.data.frame() 
+
+```
+
+```{r model3_plot_res}
+
+conf_mat_resampled(final_rs_res3) %>% 
+  
+  ggplot(aes(x = Truth, y = Freq, fill = Prediction, label = Freq)) + 
+  geom_col(position = "dodge") +
+  geom_text(position = position_dodge(width = 1)) +
+  ggtitle("Confusion matrix") +
+  theme_bw()
+
+```
+
+#### Determine variable importance
+```{r model3_imp}
+
+# new specification for ranger model
+imp_spec3 <- ranger_spec3 %>% 
+  finalize_model(select_best(ranger_tune3, metric = "accuracy")) %>% 
+  set_engine("ranger", importance = "permutation")
+
+# plot importance 
+workflow() %>% 
+  add_recipe(ranger_recipe3) %>% 
+  add_model(imp_spec3) %>% 
+  fit(hbox_train3) %>% 
+  pull_workflow_fit() %>% 
+  vip(aesthetics = list(alpha = 0.8, fill = "midnightblue")) +
+
+  theme_bw() +
+  ggtitle("Variable importance")
+
+```
+
+
+## One way ANOVAs {.tabset}
+
+### Influence healthy vs malaria
+
+#### Arginine
+```{r arginine_show, echo = TRUE, eval = FALSE}
+
+# create model for BoxCox transformation
+arg_model <- glm(`Arginine (umol/L)` ~ Status, data = df_hbox_impute)
+boxcox(arg_model, lambda = seq(-0.5, 1, by = 0.1), plotit = TRUE)
+
+# BoxCox transform
+df_arg <- df_hbox_impute %>% mutate(arg_transform = (`Arginine (umol/L)`^-0.25 - 1)/-0.25)
+
+# model on transformed data
+glm(arg_transform ~ Status, data = df_arg) %>% summary()
+
+```
+
+```{r arg_model}
+
+glm(`Arginine (umol/L)` ~ Status, data = df_hbox_impute) %>% summary()
+
+aov(`Arginine (umol/L)` ~ Status, data = df_hbox_impute) %>% TukeyHSD() %>% 
+  .$Status %>% 
+  as.data.frame() %>% 
+  rownames_to_column("Status") %>% 
+  dplyr::select(Status, `p adj`)
+
+
+```
+
+```{r arg_plot}
+
+df_hbox_long %>% filter(measurement == "Arginine (umol/L)") %>% 
+  
+  ggplot(aes(x = Status, y = value)) +
+  geom_violin(aes(color = Status)) +
+  geom_jitter(position = position_jitter(0.2), shape = 1) +
+  stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
+
+  theme_bw() +
+  theme(legend.position = "none")  +
+  ggtitle("Arginine (umol/L)") +
+  
+  theme(strip.text = element_text(size = 15),
+        axis.title = element_text(size = 15),
+        axis.title.y = element_blank(),
+        axis.text = element_text(size = 15))
+
+```
+
+#### Temperature
+```{r temp}
+
+glm(Temperature ~ Status, data = df_hbox_impute) %>% summary()
+
+aov(Temperature ~ Status, data = df_hbox_impute) %>% TukeyHSD() %>% 
+  .$Status %>% 
+  as.data.frame() %>% 
+  rownames_to_column("Status") %>% 
+  dplyr::select(Status, `p adj`)
+
+```
+
+```{r temp_plot}
+
+df_hbox_long %>% filter(measurement == "Temperature") %>% 
+  
+  ggplot(aes(x = Status, y = value)) +
+  geom_violin(aes(color = Status)) +
+  geom_jitter(position = position_jitter(0.2), shape = 1) +
+  stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
+
+  theme_bw() +
+  theme(legend.position = "none")  +
+  ggtitle("Temperature") +
+  
+  theme(strip.text = element_text(size = 15),
+        axis.title = element_text(size = 15),
+        axis.title.y = element_blank(),
+        axis.text = element_text(size = 15))
+
+```
+
+#### Hematocrit
+```{r hct}
+
+glm(Hematocrit ~ Status, data = df_hbox_impute) %>% summary()
+
+aov(Temperature ~ Status, data = df_hbox_impute) %>% TukeyHSD() %>% 
+  .$Status %>% 
+  as.data.frame() %>% 
+  rownames_to_column("Status") %>% 
+  dplyr::select(Status, `p adj`)
+
+```
+
+```{r hct_plot}
+
+df_hbox_long %>% filter(measurement == "Hematocrit") %>% 
+  
+  ggplot(aes(x = Status, y = value)) +
+  geom_violin(aes(color = Status)) +
+  geom_jitter(position = position_jitter(0.2), shape = 1) +
+  stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
+
+  theme_bw() +
+  theme(legend.position = "none")  +
+  ggtitle("Hematocrit") +
+  
+  theme(strip.text = element_text(size = 15),
+        axis.title = element_text(size = 15),
+        axis.title.y = element_blank(),
+        axis.text = element_text(size = 15))
+
+```
+
+### Influence CM vs UM
+
+#### O2sat_alpha
+```{r O2sat_alpha}
+
+glm(O2sat_alpha ~ Status, data = df_hbox_impute) %>% summary()
+
+aov(O2sat_alpha ~ Status, data = df_hbox_impute) %>% TukeyHSD() %>% 
+  .$Status %>% 
+  as.data.frame() %>% 
+  rownames_to_column("Status") %>% 
+  dplyr::select(Status, `p adj`)
+
+```
+
+```{r O2sat_alpha_plot}
+
+df_hbox_long %>% filter(measurement == "O2sat_alpha") %>% 
+  
+  ggplot(aes(x = Status, y = value)) +
+  geom_violin(aes(color = Status)) +
+  geom_jitter(position = position_jitter(0.2), shape = 1) +
+  stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
+
+  theme_bw() +
+  theme(legend.position = "none")  +
+  ggtitle("O2sat_alpha") +
+  
+  theme(strip.text = element_text(size = 15),
+        axis.title = element_text(size = 15),
+        axis.title.y = element_blank(),
+        axis.text = element_text(size = 15))
+
+```
+
+#### THC_alpha
+```{r THC_alpha}
+
+glm(THC_alpha ~ Status, data = df_hbox_impute) %>% summary()
+
+aov(THC_alpha ~ Status, data = df_hbox_impute) %>% TukeyHSD() %>% 
+  .$Status %>% 
+  as.data.frame() %>% 
+  rownames_to_column("Status") %>% 
+  dplyr::select(Status, `p adj`)
+
+```
+
+```{r THC_alpha_plot}
+
+df_hbox_long %>% filter(measurement == "THC_alpha") %>% 
+  
+  ggplot(aes(x = Status, y = value)) +
+  geom_violin(aes(color = Status)) +
+  geom_jitter(position = position_jitter(0.2), shape = 1) +
+  stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
+
+  theme_bw() +
+  theme(legend.position = "none")  +
+  ggtitle("THC_alpha") +
+  
+  theme(strip.text = element_text(size = 15),
+        axis.title = element_text(size = 15),
+        axis.title.y = element_blank(),
+        axis.text = element_text(size = 15))
+
+```
+
+#### THC
+```{r THC}
+
+glm(THC ~ Status, data = df_hbox_impute) %>% summary()
+
+aov(THC ~ Status, data = df_hbox_impute) %>% TukeyHSD() %>% 
+  .$Status %>% 
+  as.data.frame() %>% 
+  rownames_to_column("Status") %>% 
+  dplyr::select(Status, `p adj`)
+
+```
+
+```{r THC_plot}
+
+df_hbox_long %>% filter(measurement == "THC") %>% 
+  
+  ggplot(aes(x = Status, y = value)) +
+  geom_violin(aes(color = Status)) +
+  geom_jitter(position = position_jitter(0.2), shape = 1) +
+  stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
+
+  theme_bw() +
+  theme(legend.position = "none")  +
+  ggtitle("THC") +
+  
+  theme(strip.text = element_text(size = 15),
+        axis.title = element_text(size = 15),
+        axis.title.y = element_blank(),
+        axis.text = element_text(size = 15))
+
+```
+
+#### OxyHb
+```{r OxyHb}
+
+glm(OxyHb ~ Status, data = df_hbox_impute) %>% summary()
+
+aov(OxyHb ~ Status, data = df_hbox_impute) %>% TukeyHSD() %>% 
+  .$Status %>% 
+  as.data.frame() %>% 
+  rownames_to_column("Status") %>% 
+  dplyr::select(Status, `p adj`)
+
+```
+
+```{r OxyHb_plot}
+
+df_hbox_long %>% filter(measurement == "OxyHb") %>% 
+  
+  ggplot(aes(x = Status, y = value)) +
+  geom_violin(aes(color = Status)) +
+  geom_jitter(position = position_jitter(0.2), shape = 1) +
+  stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
+
+  theme_bw() +
+  theme(legend.position = "none")  +
+  ggtitle("OxyHb") +
+  
+  theme(strip.text = element_text(size = 15),
+        axis.title = element_text(size = 15),
+        axis.title.y = element_blank(),
+        axis.text = element_text(size = 15))
+
+```
+
+#### Lactate
+```{r Lactate}
+
+glm(Lactate ~ Status, data = df_hbox_impute) %>% summary()
+
+aov(Lactate ~ Status, data = df_hbox_impute) %>% TukeyHSD() %>% 
+  .$Status %>% 
+  as.data.frame() %>% 
+  rownames_to_column("Status") %>% 
+  dplyr::select(Status, `p adj`)
+
+```
+
+```{r Lactate_plot}
+
+df_hbox_long %>% filter(measurement == "Lactate") %>% 
+  
+  ggplot(aes(x = Status, y = value)) +
+  geom_violin(aes(color = Status)) +
+  geom_jitter(position = position_jitter(0.2), shape = 1) +
+  stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
+
+  theme_bw() +
+  theme(legend.position = "none")  +
+  ggtitle("Lactate") +
+  
+  theme(strip.text = element_text(size = 15),
+        axis.title = element_text(size = 15),
+        axis.title.y = element_blank(),
+        axis.text = element_text(size = 15))
+
+```
+
+#### ?OxyHb_alpha
+```{r OxyHb_alpha}
+
+glm(OxyHb_alpha ~ Status, data = df_hbox_impute) %>% summary()
+
+aov(OxyHb_alpha ~ Status, data = df_hbox_impute) %>% TukeyHSD() %>% 
+  .$Status %>% 
+  as.data.frame() %>% 
+  rownames_to_column("Status") %>% 
+  dplyr::select(Status, `p adj`)
+
+```
+
+```{r OxyHb_alpha_plot}
+
+df_hbox_long %>% filter(measurement == "OxyHb_alpha") %>% 
+  
+  ggplot(aes(x = Status, y = value)) +
+  geom_violin(aes(color = Status)) +
+  geom_jitter(position = position_jitter(0.2), shape = 1) +
+  stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
+
+  theme_bw() +
+  theme(legend.position = "none")  +
+  ggtitle("OxyHb_alpha") +
+  
+  theme(strip.text = element_text(size = 15),
+        axis.title = element_text(size = 15),
+        axis.title.y = element_blank(),
+        axis.text = element_text(size = 15))
+
+```
 
 
 

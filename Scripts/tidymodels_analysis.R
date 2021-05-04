@@ -293,7 +293,7 @@
                 
                 
         # Data
-        hbox_df2 <- df_hbox_impute %>% select(-c(subject_id, Glucose, Hematocrit, Lactate, Temperature, Arginine, Haptoglobin, Hemoglobin, WB_Nitrite))
+        hbox_df2 <- df_hbox_impute %>% select(c(Status, DeoxyHb, DeoxyHb_alpha, OxyHb, OxyHb_alpha, O2sat, O2sat_alpha, THC, THC_alpha, THC_sd))
                 
         # Build a model
                 
@@ -384,16 +384,103 @@
                         pull_workflow_fit() %>% 
                         vip(aesthetics = list(alpha = 0.8, fill = "midnightblue"))
                 
-                
-                
-                
-                
-                
-                
-                
+
 
                 
+# Same procedure but only with other data --------------------------------------------------------------
                 
+                
+        # Data
+        hbox_df3 <- df_hbox_impute %>% select(-c(subject_id, DeoxyHb, DeoxyHb_alpha, OxyHb, OxyHb_alpha, O2sat, O2sat_alpha, THC, THC_alpha, THC_sd))
+                
+        # Build a model
+                
+                # split data set
+                set.seed(1234)
+                hbox_split3 <- initial_split(hbox_df3, strata = Status)
+                hbox_train3 <- training(hbox_split3)
+                hbox_test3 <- testing(hbox_split3)  
+                
+                # resamples (not a lot of data, need to use cross validation)
+                set.seed(2345)
+                vfold_cv(hbox_train3, strata = Status) # test too small
+                hbox_folds3 <- bootstraps(hbox_train3, strata = Status)
+                
+                # Scaffolding for setting up common types of models
+                use_ranger(Status ~ ., data = hbox_df3)
+                
+                # Copy usemodels code...
+                
+                # Create recipe
+                ranger_recipe3 <- 
+                        recipe(formula = Status ~ ., data = hbox_df3) %>% 
+                        
+                        # BoxCox transformation to normality
+                        step_BoxCox(all_predictors(), -all_outcomes()) %>% 
+                        
+                        # remove variables with non-zero variance
+                        step_nzv(all_predictors(), -all_outcomes()) %>% 
+                        
+                        # impute missing data using K-nearest neighbors
+                        step_knnimpute(all_predictors(), -all_outcomes()) 
+                
+                # Model specifications (set for tuning)
+                ranger_spec3 <- 
+                        rand_forest(mtry = tune(), min_n = tune(), trees = 1000) %>% 
+                        set_mode("classification") %>% 
+                        set_engine("ranger") 
+                
+                # Create workflow
+                ranger_workflow3 <- 
+                        workflow() %>% 
+                        add_recipe(ranger_recipe3) %>% 
+                        add_model(ranger_spec3) 
+                
+        # Tune model
+                
+                # Initial tune on bootstraps
+                set.seed(8434)
+                ranger_tune3 <-
+                        tune_grid(ranger_workflow3, 
+                                  resamples = hbox_folds3, 
+                                  grid = 11)
+                
+                # Explore tuning results
+                show_best(ranger_tune3, metric = "roc_auc")
+                show_best(ranger_tune3, metric = "accuracy")
+                
+                # Visualize results
+                autoplot(ranger_tune3)
+                
+        # Finalize model
+                
+                # finalize workflow
+                final_rf3 <- ranger_workflow3 %>% 
+                        finalize_workflow(select_best(ranger_tune3, metric = "accuracy")) 
+                
+                hbox_fit3 <- last_fit(final_rf3, hbox_split3) # fitting to training data, evaluating on testing
+                
+                collect_metrics(hbox_fit3) # computed on test set
+                
+                # collect predictions on test set
+                collect_predictions(hbox_fit3) %>% 
+                        
+                        filter(Status != .pred_class) # 6 wrong
+                
+        # Determine variable importance
+                
+                # new specification for ranger model
+                imp_spec3 <- ranger_spec3 %>% 
+                        finalize_model(select_best(ranger_tune3, metric = "accuracy")) %>% 
+                        set_engine("ranger", importance = "permutation")
+                
+                # plot importance 
+                workflow() %>% 
+                        add_recipe(ranger_recipe3) %>% 
+                        add_model(imp_spec3) %>% 
+                        fit(hbox_train3) %>% 
+                        pull_workflow_fit() %>% 
+                        vip(aesthetics = list(alpha = 0.8, fill = "midnightblue"))
                 
                 
                 
