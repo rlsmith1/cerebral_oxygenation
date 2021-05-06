@@ -7,6 +7,8 @@ output: html_document
 
 knitr::opts_chunk$set(echo = FALSE, comment = "", message = FALSE, warning = FALSE, fig.height = 8, fig.width = 10)
 
+load("glm_res.Rdata")
+
 ```
 
 # Cerebral oxygenation in cerebral malaria: logistic regression analysis {.tabset}
@@ -97,6 +99,7 @@ df_hbox_log_voi %>% pivot_longer(2:10, names_to = "variable", values_to = "value
         axis.title = element_text(size = 15),
         axis.title.y = element_blank(),
         axis.text = element_text(size = 15))
+
 ```
 
 ```{r histogram, fig.height = 6}
@@ -125,19 +128,18 @@ df_hbox_log_voi %>% pivot_longer(2:10, names_to = "variable", values_to = "value
 
 f_calc_cor <- function(df, status) {
   
-  df_hbox_impute %>%
+  df %>%
     filter(Status == status) %>% 
-    dplyr::select(-c(subject_id, Status)) %>% 
+    dplyr::select(-Status) %>% 
     cor(method = "spearman")
   
 }
 
-m_cor_hv <- df_hbox_impute %>% f_calc_cor(status = "HV")
+m_cor_hv <- df_hbox_impute %>% dplyr::select(c(2, 11:19)) %>% f_calc_cor(status = "HV")
 
-m_cor_um <- df_hbox_impute %>% f_calc_cor(status = "UM")
+m_cor_um <- df_hbox_impute %>% dplyr::select(c(2, 11:19)) %>% f_calc_cor(status = "UM")
 
-m_cor_cm <- df_hbox_impute %>% f_calc_cor(status = "CM")
-
+m_cor_cm <- df_hbox_impute %>% dplyr::select(c(2, 11:19)) %>% f_calc_cor(status = "CM")
 
 # correlation matrix
 
@@ -152,12 +154,12 @@ m_cor_cm <- df_hbox_impute %>% f_calc_cor(status = "CM")
       ggplot(aes(x = X1, y = X2, fill = value, label = round(value, 2))) + 
       geom_tile() +
       scale_fill_gradient2(low = "#4575b4", high = "#d73027") +
-      geom_text(size = 6) +
+      geom_text(size = 8) +
       
       xlab("") +
       ylab("") +
       theme(axis.text.x = element_text(angle = 45, hjust = 0.9),
-            axis.text = element_text(size = 25),
+            axis.text = element_text(size = 35),
             legend.text = element_text(size = 40),
             legend.title = element_text(size = 50),
             legend.key.size = unit(2, 'cm'),
@@ -206,7 +208,7 @@ df_hbox_voi_01 %>%
 
 - logistic regression model
 - variables: DeoxyHb, DeoxyHb_alpha, OxyHb, OxyHb_alpha, O2sat, O2sat_alpha, THC, THC_alpha, THC_sd
-- bootstrap x100
+- bootstrap x1000
 - BoxCox transformation
 
 ```{r split_boot}
@@ -214,22 +216,16 @@ df_hbox_voi_01 %>%
 library(tidymodels)
 library(rsample)
 
-# split data
-set.seed(123)
-hbox_split <- initial_split(df_hbox_voi_01, strata = Status)
-hbox_train <- training(hbox_split)
-hbox_test <- training(hbox_split)
-
 # resample
 set.seed(234)
-hbox_boot <- bootstraps(hbox_train, times = 100)
+hbox_boot <- bootstraps(df_hbox_voi_01, times = 1000)
 
 ```
 
 ```{r model_spec}
 
 # recipe
-hbox_rec <- recipe(Status ~ ., data = hbox_train) %>% 
+hbox_rec <- recipe(Status ~ ., data = df_hbox_voi_01) %>% 
   step_BoxCox(all_predictors()) %>% 
   step_nzv(all_predictors())
 
@@ -243,7 +239,7 @@ glm_spec <- logistic_reg() %>%
 
 ```
 
-```{r train_model}
+```{r train_model, eval = FALSE}
 
 glm_res <- hbox_wf %>% 
   add_model(glm_spec) %>%
@@ -255,9 +251,21 @@ glm_res <- hbox_wf %>%
 
 ```
 
-#### Evaluate
+```{r best}
 
-Training data
+# select best model to be used for evaluation
+glm_best <- glm_res %>% select_best("roc_auc")
+
+# finalize model
+hbox_final <- hbox_wf %>% 
+  add_model(glm_spec) %>% 
+  finalize_workflow(glm_best) %>%
+  fit(df_hbox_voi_01) %>%
+  pull_workflow_fit()
+
+```
+
+#### Evaluate
 
 ```{r eval_training}
  
@@ -278,12 +286,12 @@ glm_res %>%
   geom_text(size = 6) +
   scale_fill_gradient2(low = "#4575b4", high = "#d73027") +
   
-  ggtitle("Confusion matrix: training data") +
+  ggtitle("Confusion matrix") +
   theme_bw()
 
 ```
 
-```{r roc}
+```{r roc, eval = FALSE}
 
 glm_res %>% 
   collect_predictions() %>% 
@@ -299,41 +307,10 @@ glm_res %>%
 
 ```
 
-Testing data
-```{r test}
-
-# fit to test data
-hbox_final <- hbox_wf %>% 
-  add_model(glm_spec) %>% 
-  last_fit(hbox_split)
-
-# compute metrics on testing data
-collect_metrics(hbox_final) %>% 
-  dplyr::select(-c(.estimator, .config)) %>% 
-  as.data.frame()
-
-# predictions
-collect_predictions(hbox_final) %>% 
-  count(.pred_class, Status) %>% 
-  dplyr::rename("Prediction" = ".pred_class", "Truth" = "Status", "Freq" = "n") %>%  
-  mutate(Prediction = ifelse(Prediction == 1, "CM", "UM")) %>% 
-  mutate(Truth = ifelse(Truth == 1, "CM", "UM")) %>% 
-  
-  # plot
-  ggplot(aes(x = Truth, y = Prediction, fill = Freq, label = Freq)) +
-  geom_tile() +
-  geom_text(size = 6) +
-  scale_fill_gradient2(low = "#4575b4", high = "#d73027") +
-  
-  ggtitle("Confusion matrix: testing data") +
-  theme_bw()
-
-```
-
 Coefficients
 ```{r coefficients}
 
-hbox_final$.workflow[[1]] %>% 
+hbox_final %>% 
   tidy() %>% 
   as.data.frame()
 
@@ -343,23 +320,10 @@ Odds ratios
 ```{r OR}
 
 # OR
-hbox_final$.workflow[[1]] %>% 
+hbox_final %>% 
   tidy(exponentiate = TRUE) %>% 
   arrange(desc(estimate)) %>% 
   as.data.frame()
-
-```
-
-```{r plot_voi}
-
-df_hbox_log_voi %>%
-  
-  ggplot(aes(x = THC_alpha, y = THC_sd, color = Status, fill = Status, size = O2sat_alpha)) +
-  geom_point(alpha = 0.7) +
-  stat_conf_ellipse(level = 0.95, npoint = 100, bary = TRUE, alpha = 0.1, geom = "polygon") +
-  stat_mean(shape = 1, na.rm = FALSE) +
-  ggtitle("VOI") +
-  theme_bw()
 
 ```
 
@@ -368,8 +332,8 @@ df_hbox_log_voi %>%
 #### Build
 
 - logistic regression model
-- variables: THC_alpha, THC_sd (O2sat_alpha was NS when included in model, p = 0.42)
-- bootstrap x100
+- variables: THC_alpha, THC_sd
+- bootstrap x1000
 - BoxCox transformation
 
 ```{r split_boot2}
@@ -380,22 +344,16 @@ library(rsample)
 # select only significant variables
 df_hbox_model2 <- df_hbox_voi_01 %>% dplyr::select(c(Status, THC_alpha, THC_sd))
 
-# split data
-set.seed(456)
-hbox_split2 <- initial_split(df_hbox_model2, strata = Status)
-hbox_train2 <- training(hbox_split2)
-hbox_test2 <- training(hbox_split2)
-
 # resample
 set.seed(789)
-hbox_boot2 <- bootstraps(hbox_train2, times = 100)
+hbox_boot2 <- bootstraps(df_hbox_model2, times = 1000)
 
 ```
 
 ```{r model_spec2}
 
 # recipe
-hbox_rec2 <- recipe(Status ~ ., data = hbox_train2) %>% 
+hbox_rec2 <- recipe(Status ~ ., data = df_hbox_model2) %>% 
   step_BoxCox(all_predictors()) %>% 
   step_nzv(all_predictors())
 
@@ -409,21 +367,35 @@ glm_spec2 <- logistic_reg() %>%
 
 ```
 
-```{r train_model2}
+```{r train_model2, eval = FALSE}
 
 glm_res2 <- hbox_wf2 %>% 
   add_model(glm_spec2) %>%
   fit_resamples(
     resamples = hbox_boot2,
     metrics = metric_set(roc_auc, accuracy, sensitivity, specificity),
-    control = tune::control_resamples(save_pred = TRUE)
+    control = tune::control_resamples(save_pred = TRUE, verbose = TRUE)
   )
+
+save(glm_res, glm_res2, file = "glm_res.Rdata")
 
 ```   
 
-#### Evaluate
+```{r best2}
 
-Training data
+# select best model to be used for evaluation
+glm_best2 <- glm_res2 %>% select_best("roc_auc")
+
+# finalize model
+hbox_final2 <- hbox_wf2 %>% 
+  add_model(glm_spec2) %>% 
+  finalize_workflow(glm_best2) %>%
+  fit(df_hbox_model2) %>%
+  pull_workflow_fit()
+
+```
+
+#### Evaluate
 
 ```{r eval_training2}
 
@@ -444,12 +416,12 @@ glm_res2 %>%
   geom_text(size = 6) +
   scale_fill_gradient2(low = "#4575b4", high = "#d73027") +
   
-  ggtitle("Confusion matrix: training data") +
+  ggtitle("Confusion matrix") +
   theme_bw()
 
 ```
 
-```{r roc2}
+```{r roc2, eval = FALSE}
 
 glm_res2 %>% 
   collect_predictions() %>% 
@@ -465,41 +437,10 @@ glm_res2 %>%
 
 ```
 
-Testing data
-```{r test2}
-
-# fit to test data
-hbox_final2 <- hbox_wf2 %>% 
-  add_model(glm_spec2) %>% 
-  last_fit(hbox_split2)
-
-# compute metrics on testing data
-collect_metrics(hbox_final2) %>% 
-  dplyr::select(-c(.estimator, .config)) %>% 
-  as.data.frame()
-
-# predictions
-collect_predictions(hbox_final2) %>% 
-  count(.pred_class, Status) %>% 
-  dplyr::rename("Prediction" = ".pred_class", "Truth" = "Status", "Freq" = "n") %>%  
-  mutate(Prediction = ifelse(Prediction == 1, "CM", "UM")) %>% 
-  mutate(Truth = ifelse(Truth == 1, "CM", "UM")) %>% 
-  
-  # plot
-  ggplot(aes(x = Truth, y = Prediction, fill = Freq, label = Freq)) +
-  geom_tile() +
-  geom_text(size = 6) +
-  scale_fill_gradient2(low = "#4575b4", high = "#d73027") +
-  
-  ggtitle("Confusion matrix: testing data") +
-  theme_bw()
-
-```
-
 Coefficients
 ```{r coefficients2}
 
-hbox_final2$.workflow[[1]] %>% 
+hbox_final2 %>% 
   tidy() %>% 
   as.data.frame()
 
@@ -508,28 +449,106 @@ hbox_final2$.workflow[[1]] %>%
 Odds ratios
 ```{r OR2}
 
-# OR
-hbox_final2$.workflow[[1]] %>% 
+hbox_final2 %>% 
   tidy(exponentiate = TRUE) %>% 
   arrange(desc(estimate)) %>% 
   as.data.frame()
 
 ```
 
-```{r plot_voi2}
+## THC_alpha & THC_sd
 
-df_hbox_model2 %>% 
+```{r violin_plot}
+
+df_hbox_log_voi %>% 
+  pivot_longer(2:10, names_to = "variable", values_to = "value") %>% 
+  filter(variable %in% c("THC_alpha", "THC_sd")) %>% 
   
-  ggplot(aes(x = THC_alpha, y = THC_sd, color = Status, fill = Status)) +
-  geom_point(alpha = 0.7) +
-  stat_conf_ellipse(level = 0.95, npoint = 100, bary = TRUE, alpha = 0.1, geom = "polygon") +
-  stat_mean(shape = 1, na.rm = FALSE) +
-  ggtitle("VOI") +
-  theme_bw()
+  ggplot(aes(x = Status, y = value)) +
+  geom_violin(aes(color = Status)) +
+  geom_jitter(position = position_jitter(0.2), shape = 1) +
+  stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
+  facet_wrap(~variable, scales = "free_y") +
   
+  ggtitle("Violin plot") +
+  theme_bw() +
+  theme(legend.position = "none")  +
+  
+  theme(strip.text = element_text(size = 15),
+        axis.title = element_text(size = 15),
+        axis.title.y = element_blank(),
+        axis.text = element_text(size = 15))
+
 ```
 
+```{r box_plot}
+
+# calculate quantiles of THC_alpha scores
+Q1 <- quantile(df_hbox_log_voi$THC_alpha, 0.25)
+Q2 <- quantile(df_hbox_log_voi$THC_alpha, 0.50)
+Q3 <- quantile(df_hbox_log_voi$THC_alpha, 0.75)
+
+df_hbox_log_voi %>% 
+  dplyr::select(c("Status", "THC_alpha", "THC_sd")) %>% 
+  
+  # assign quantiles to THC_alpha scores
+  mutate(THCa_quartile = case_when(
+    
+    THC_alpha < Q1 ~ 1,
+    Q1 < THC_alpha & THC_alpha < Q2 ~ 2,
+    Q2 < THC_alpha & THC_alpha <= Q3 ~ 3,
+    Q3 < THC_alpha ~ 4
+
+  ) %>% as.factor()) %>%
+
+  # plot
+  ggplot(aes(x = Status, y = THC_sd)) +
+  geom_boxplot(show.legend = FALSE, outlier.shape = NA) +
+  geom_point(aes(color = THCa_quartile), position = position_jitter(0.2), size = 3) +
+  stat_summary(aes(color = THCa_quartile), fun = "median", geom = "crossbar", size = 0.3, width = 0.5) +
+  scale_color_manual(values = c("#F8766D", "#7CAE00", "#00BFC4", "#C77CFF", "black", "black")) +
+
+  ggtitle("Relationship between THC_sd and THC_alpha") +
+  theme_bw() 
+
+```
+
+```{r scatter_plot}
 
 
+cm_model <- lm(THC_sd ~ THC_alpha, data = df_hbox_log_voi %>% filter(Status == "CM"))
+um_model <- lm(THC_sd ~ THC_alpha, data = df_hbox_log_voi %>% filter(Status == "UM"))
+
+df_hbox_log_voi %>%
+  
+  ggplot(aes(x = THC_alpha, y = THC_sd, color = Status, fill = Status)) +
+  geom_point(size = 3, alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE) +
+  
+  geom_text(label = paste0("y = ", 
+                           round(cm_model$coefficients[[1]], 2), 
+                           " + ", 
+                           round(cm_model$coefficients[[2]], 2), 
+                           "x ; R^2 = ", 
+                           round(summary(cm_model)$adj.r.squared, 2)),
+            x = 1.3, y = 0.55,
+            color = "#00BFC4",
+            size = 6) +
+  
+    geom_text(label = paste0("y = ", 
+                           round(um_model$coefficients[[1]], 2), 
+                           " + ", 
+                           round(um_model$coefficients[[2]], 2), 
+                           "x ; R^2 = ", 
+                           round(summary(um_model)$adj.r.squared, 2)),
+            x = 1.3, y = 0.6,
+            color = "#F8766D",
+            size = 6) +
+
+  
+  ggtitle("Scatter plot") +
+  theme_bw()
+
+```
 
 
