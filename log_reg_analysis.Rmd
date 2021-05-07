@@ -121,7 +121,61 @@ df_hbox_log_voi %>% pivot_longer(2:10, names_to = "variable", values_to = "value
 
 ```
 
-## Variable correlations
+## PCA & variable correlations
+```{r pca}
+
+library(factoextra)
+
+# convert tibble to df
+df_hbox_voi_df <- df_hbox_log_voi %>% dplyr::select(-Status) %>% as.data.frame() 
+rownames(df_hbox_voi_df) <- df_hbox_impute %>% dplyr::filter(Status != "HV") %>% .$subject_id
+
+# compute PCA
+my_pca <- prcomp(df_hbox_voi_df, scale = TRUE)
+
+# define groups
+groups <- as.factor(df_hbox_log_voi$Status)
+
+# Eigenvalues
+pca_eig_val <- get_eigenvalue(my_pca)
+
+# two data frames for plotting
+df_vars <- my_pca$rotation %>% as_tibble() %>% mutate(variable = rownames(my_pca$rotation))
+df_pnts <- my_pca$x %>% as_tibble() %>% mutate(group = groups)
+
+# plot
+
+library(ggpubr)
+library(ggrepel)
+
+  # plot patients
+  ggplot() +
+  geom_point(data = df_pnts, mapping = aes(x = PC1, y = PC2, color = group), 
+             size = 3) +
+  stat_conf_ellipse(data = df_pnts, mapping = aes(x = PC1, y = PC2, color = group, fill = group),
+                    level = 0.95, npoint = 100, bary = TRUE, alpha = 0.1, geom = "polygon") +
+  stat_mean(data = df_pnts, mapping = aes(x = PC1, y = PC2, color = group, shape = group),
+            na.rm = FALSE) +
+  
+  # plot variables
+  geom_point(data = df_vars, aes(x = PC1*10, y = PC2*10)) +
+  geom_text_repel(data = df_vars, aes(x = PC1*10, y = PC2*10, label = variable, size = 10), show.legend = FALSE) +
+  geom_segment(data = df_vars, aes(x = 0, y = 0, xend = PC1*10, yend = PC2*10), arrow = arrow()) +
+
+  # draw lines
+  geom_vline(xintercept = 0, lty = 2, color = "black") +
+  geom_hline(yintercept = 0, lty = 2, color = "black") +
+  
+  # design
+  xlab(paste0("PC1: ", round(pca_eig_val$variance.percent[1], 2), "% of variance")) +
+  ylab(paste0("PC1: ", round(pca_eig_val$variance.percent[2], 2), "% of variance")) +
+
+  ggtitle("PCA") +
+  theme_bw() 
+
+
+```
+
 ```{r correlations, fig.show = "hold", out.width = "50%", fig.height = 12, fig.width = 15}
 
 # calculate spearman correlations in each group
