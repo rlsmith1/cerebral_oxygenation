@@ -196,7 +196,7 @@ df_vars <- my_pca$rotation %>% as_tibble() %>% mutate(variable = rownames(my_pca
   
   # design
   xlab(paste0("PC1: ", round(pca_eig_val$variance.percent[1], 2), "% of variance")) +
-  ylab(paste0("PC1: ", round(pca_eig_val$variance.percent[2], 2), "% of variance")) +
+  ylab(paste0("PC2: ", round(pca_eig_val$variance.percent[2], 2), "% of variance")) +
 
   theme_bw() 
 
