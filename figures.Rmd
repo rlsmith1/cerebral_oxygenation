@@ -54,16 +54,31 @@ df_hbox <- df_hbox %>% mutate(Sex = as.factor(Sex))
 # Trim for variables of interest (VOI)
 df_hbox_trim <- df_hbox %>% 
   dplyr::select(c(Subject.ID..NIAID., Status, Glucose, Hematocrit, Lactate, Temperature,
-                  Arginine.umol.L, Haptoglobin..mg.dl., Hemoglobin..uM., Whole.Blood.Nitrite, 
+                  Arginine.umol.L, Haptoglobin..mg.dl., Hemoglobin..uM., 
+                  BP.Diastolic, BP.Systolic, O2.Sat, RR, HR,
+                  
                   cerebral.hbdeox, cerebral.hbdeox.alpha, cerebral.hbox, cerebral.hbox.alpha,
-                  cerebral.sat, cerebral.sat.alpha, cerebral.thc, cerebral.thc.alpha, cerebral.thc.norm.std)) %>% 
+                  cerebral.sat, cerebral.sat.alpha, cerebral.thc, cerebral.thc.alpha)) %>% 
   
-  dplyr::rename("subject_id" = "Subject.ID..NIAID.", "Arginine (umol/L)" = "Arginine.umol.L", "Haptoglobin (mg/dL)" = "Haptoglobin..mg.dl.", 
-                "Hemoglobin (uM)" = "Hemoglobin..uM.", "WB_Nitrite" = "Whole.Blood.Nitrite", "DeoxyHb" = "cerebral.hbdeox", 
-                "DeoxyHb_alpha" = "cerebral.hbdeox.alpha", "OxyHb" = "cerebral.hbox", "OxyHb_alpha" = "cerebral.hbox.alpha", 
-                "O2sat" = "cerebral.sat", "O2sat_alpha" = "cerebral.sat.alpha", "THC" = "cerebral.thc", 
-                "THC_alpha" = "cerebral.thc.alpha", "THC_sd" = "cerebral.thc.norm.std") 
+  dplyr::rename("subject_id" = "Subject.ID..NIAID.", 
+                "Arginine (umol/L)" = "Arginine.umol.L", "Haptoglobin (mg/dL)" = "Haptoglobin..mg.dl.", 
+                "Hemoglobin (uM)" = "Hemoglobin..uM.", "Lactate (mmol/L)" = "Lactate", "Hematocrit (%)" = "Hematocrit",
+                "Systolic BP" = "BP.Systolic", "Diastolic BP" = "BP.Diastolic", "O2 sat" = "O2.Sat", 
+                "Respiration rate" = "RR", "Heart rate" = "HR",
+                
+                "Deoxy Hb" = "cerebral.hbdeox", "Deoxy Hb α" = "cerebral.hbdeox.alpha", 
+                "Oxy Hb" = "cerebral.hbox", "Oxy Hb α" = "cerebral.hbox.alpha",  
+                "Cerebral O2 sat" = "cerebral.sat", "Cerebral O2 sat α" = "cerebral.sat.alpha", 
+                "THC" = "cerebral.thc", "THCα" = "cerebral.thc.alpha") 
 
+# Remove patients labeled as "UM" that instead meet the criteria for severe malaria
+
+  # remove UM patient with lactate > 5 
+  df_hbox_trim <- df_hbox_trim %>% dplyr::filter(!(Status == "UM" & `Lactate (mmol/L)` > 5))
+  
+  # All UM patients have hematocrit > 15%
+  # df_hbox_trim %>% dplyr::filter(Status == "UM"  & `Hematocrit (%)` <= 15)
+  
 # impute missing data with median by group
 f_impute <- function(x, na.rm = TRUE) (replace(x, is.na(x), median(x, na.rm = na.rm)))
 
@@ -73,7 +88,7 @@ df_hbox_impute <- df_hbox_trim %>%
   ungroup()
 
 # pivot long
-df_hbox_long <- df_hbox_trim %>% pivot_longer(cols = 3:ncol(.), names_to = "measurement", values_to = "value")
+df_hbox_long <- df_hbox_trim %>% pivot_longer(cols = 3:ncol(.), names_to = "variable", values_to = "value")
 
 ```
 
@@ -104,20 +119,36 @@ df_sex <- df_hbox %>%
 
 # Age, hematocrit, and lactate
 df_hbox %>% 
+  
   group_by(Status) %>% 
-  summarise(`Age (years)` = median(Age, na.rm = TRUE), age_range = range(Age, na.rm = TRUE), 
+  summarise(`Age (years)` = median(Age, na.rm = TRUE), age_range = range(Age, na.rm = TRUE),
+            
+            `Temperature (°C)` = median(Temperature, na.rm = TRUE), temp_range = range(Temperature, na.rm = TRUE),
+            `Heart rate` = median(HR, na.rm = TRUE), hr_range = range(HR, na.rm = TRUE),
+            `Systolic BP` = median(BP.Systolic, na.rm = TRUE), sys_range = range(BP.Systolic, na.rm = TRUE),
+            `Diastolic BP` = median(BP.Diastolic, na.rm = TRUE), dia_range = range(BP.Diastolic, na.rm = TRUE),
+            `Respiration rate` = median(RR, na.rm = TRUE), rr_range = range(RR, na.rm = TRUE),
+            `O~2~ saturation` = median(O2.Sat, na.rm = TRUE), o2_range = range(O2.Sat, na.rm = TRUE),
+            
             `Hematocrit (%)` = median(Hematocrit, na.rm = TRUE), hem_range = range(Hematocrit, na.rm = TRUE),
             `Lactate (mmol/L)` = median(Lactate, na.rm = TRUE), lactate_range = range(Lactate, na.rm = TRUE),
-            `Arginine (umol/L)` = median(Arginine.umol.L, na.rm = TRUE), arg_range = range(Arginine.umol.L, na.rm = TRUE),
-            `Temperature (°C)` = median(Temperature, na.rm = TRUE), temp_range = range(Temperature, na.rm = TRUE)) %>% 
+            `Arginine (μmol/L)` = median(Arginine.umol.L, na.rm = TRUE), arg_range = range(Arginine.umol.L, na.rm = TRUE)) %>% 
   mutate_if(is.numeric, round, 1) %>% 
   
   mutate(`Age (years)` = paste0(`Age (years)`, " (", age_range[1], ", ", age_range[2], ")"),
+         
+         `Temperature (°C)` = paste0(`Temperature (°C)`, " (", temp_range[1], ", ", temp_range[2], ")"),
+         `Heart rate` = paste0(`Heart rate`, " (", hr_range[1], ", ", hr_range[2], ")"),
+         `Systolic BP` = paste0(`Systolic BP`, " (", sys_range[1], ", ", sys_range[2], ")"),
+         `Diastolic BP` = paste0(`Diastolic BP`, " (", dia_range[1], ", ", dia_range[2], ")"),
+         `Respiration rate` = paste0(`Respiration rate`, " (", rr_range[1], ", ", rr_range[2], ")"),
+         `O~2~ saturation` = paste0(`O~2~ saturation`, " (", o2_range[1], ", ", o2_range[2], ")"),
+
          `Hematocrit (%)` = paste0(`Hematocrit (%)`, " (", hem_range[1], ", ", hem_range[2], ")"),
          `Lactate (mmol/L)` = paste0(`Lactate (mmol/L)`, " (", lactate_range[1], ", ", lactate_range[2], ")"),
-         `Arginine (umol/L)` = paste0(`Arginine (umol/L)`, " (", arg_range[1], ", ", arg_range[2], ")"),
-         `Temperature (°C)` = paste0(`Temperature (°C)`, " (", temp_range[1], ", ", temp_range[2], ")")) %>% 
-  dplyr::select(-c(age_range, hem_range, lactate_range, arg_range, temp_range)) %>% 
+         `Arginine (μmol/L)` = paste0(`Arginine (μmol/L)`, " (", arg_range[1], ", ", arg_range[2], ")")) %>% 
+  dplyr::select(-c(age_range, temp_range, hr_range, sys_range, dia_range, rr_range, o2_range, hem_range, lactate_range, arg_range)) %>% 
+  
   unique() %>% 
   t() %>% 
   row_to_names(row_number = 1) %>% 
@@ -127,8 +158,8 @@ df_hbox %>%
   
   dplyr::rename(" " = "variable",
                 "Healthy volunteers (HV)" = "HV",
-                "Uncomplicated malaria patients (UM)" = "UM",
-                "Cerebral malaria patients (CM)" = "CM") %>% 
+                "Uncomplicated malaria (UM) patients" = "UM",
+                "Cerebral malaria (CM) patients" = "CM") %>% 
   knitr::kable(align = rep('c', 4))
 
 ```
@@ -170,187 +201,6 @@ df_hbox_voi_long %>%
 
 ```
 **Figure 1.** Differences in variables measured by Oxiplex and associated alpha values among patient groups. Note: removed one outlier from DeoxyHb alpha (3.52)
-
-### Figure 2: Random forest modeling using all outcomes and predictors
-
-#### A. PCA
-```{r fig2a}
-
-# convert tibble to df
-df_hbox_impute_df <- df_hbox_impute %>% 
-  dplyr::select(-c(subject_id, Status)) %>% 
-  dplyr::rename("Whole blood nitrite" = "WB_Nitrite", "THC sd" = "THC_sd", "THCα" = "THC_alpha", 
-                "Deoxy Hb" = "DeoxyHb", "Oxy Hb" = "OxyHb", "O2 sat" = "O2sat", "O2 sat α" = "O2sat_alpha",
-                "Deoxy Hb α" = "DeoxyHb_alpha", "Oxy Hb α" = "OxyHb_alpha",
-                "Hemoglobin" = "Hemoglobin (uM)", "Haptoglobin" = "Haptoglobin (mg/dL)", "Arginine" = "Arginine (umol/L)") %>% 
-  as.data.frame(df_hbox_impute) 
-rownames(df_hbox_impute_df) <- df_hbox_impute$subject_id
-
-# compute PCA
-my_pca1 <- prcomp(df_hbox_impute_df, scale = TRUE)
-
-# define groups
-groups1 <- as.factor(df_hbox_impute$Status)
-
-# Eigenvalues
-pca_eig_val1 <- get_eigenvalue(my_pca1)
-
-# extract variables
-df_vars1 <- my_pca1$rotation %>% as_tibble() %>% mutate(variable = rownames(my_pca1$rotation))
-
-# extract patients
-df_pnts1 <- my_pca1$x %>% as_tibble() %>% mutate(group = groups1)
-
-# plot
-
-  # plot patients
-  ggplot() +
-  geom_point(data = df_pnts1, 
-             mapping = aes(x = PC1, y = PC2, color = group), 
-             size = 3) +
-  stat_conf_ellipse(data = df_pnts1, 
-                    mapping = aes(x = PC1, y = PC2, color = group, fill = group),
-                    level = 0.95, npoint = 100, bary = TRUE, alpha = 0.1, geom = "polygon") +
-  stat_mean(data = df_pnts1, 
-            mapping = aes(x = PC1, y = PC2, color = group, shape = group),
-            na.rm = FALSE) +
-  
-  # plot variables
-  geom_point(data = df_vars1, aes(x = PC1*10, y = PC2*10)) +
-  geom_text_repel(data = df_vars1, aes(x = PC1*10, y = PC2*10, label = variable, size = 10), show.legend = FALSE) +
-  geom_segment(data = df_vars1, aes(x = 0, y = 0, xend = PC1*10, yend = PC2*10), arrow = arrow()) +
-
-  # draw lines
-  geom_vline(xintercept = 0, lty = 2, color = "black") +
-  geom_hline(yintercept = 0, lty = 2, color = "black") +
-  
-  # design
-  scale_color_manual(values = my_col) +
-  scale_fill_manual(values = my_col) +
-  xlab(paste0("PC1: ", round(pca_eig_val1$variance.percent[1], 2), "% of variance")) +
-  ylab(paste0("PC2: ", round(pca_eig_val1$variance.percent[2], 2), "% of variance")) +
-
-  theme_bw() +
-  theme(axis.text = element_text(size = 20),
-        axis.title = element_text(size = 25),
-        legend.text = element_text(size = 15),
-        legend.title = element_text(size = 20))
-
-```
-
-#### B. Confusion matrix
-```{r fig2b_prep, eval = FALSE}
-
-# Data
-df_hbox_model1 <- df_hbox_trim %>% 
-  dplyr::select(-subject_id) %>% 
-  dplyr::rename("Whole blood nitrite" = "WB_Nitrite", "THC sd" = "THC_sd", "THCα" = "THC_alpha", 
-                "Deoxy Hb" = "DeoxyHb", "Oxy Hb" = "OxyHb", "O2 sat" = "O2sat", "O2 sat α" = "O2sat_alpha",
-                "Deoxy Hb α" = "DeoxyHb_alpha", "Oxy Hb α" = "OxyHb_alpha",
-                "Hemoglobin" = "Hemoglobin (uM)", "Haptoglobin" = "Haptoglobin (mg/dL)", "Arginine" = "Arginine (umol/L)")
-
-# Build a model
-
-  # resamples (not a lot of data, need to use cross validation)
-  set.seed(123)
-  hbox_boot1 <- bootstraps(df_hbox_model1, strata = Status)
-
-  # Create recipe
-  ranger_recipe <- 
-    recipe(formula = Status ~ ., data = df_hbox_model1) %>% 
-    
-    # BoxCox transformation to normality
-    step_BoxCox(all_predictors(), -all_outcomes()) %>% 
-    
-    # remove variables with non-zero variance
-    step_nzv(all_predictors(), -all_outcomes()) %>% 
-    
-    # impute missing data using K-nearest neighbors
-    step_knnimpute(all_predictors(), -all_outcomes()) 
-  
-  # Random forest model specifications (set for tuning)
-  ranger_spec <- 
-    rand_forest(mtry = tune(), min_n = tune(), trees = 1000) %>% 
-    set_mode("classification") %>% 
-    set_engine("ranger") 
-  
-  # Create workflow
-  ranger_workflow <- 
-    workflow() %>% 
-    add_recipe(ranger_recipe) %>% 
-    add_model(ranger_spec) 
-
-# Tune model
-
-  # Initial tune on bootstraps
-  set.seed(84374)
-  ranger_tune <-
-    tune_grid(ranger_workflow, 
-              resamples = hbox_boot1, 
-              grid = 11)
-  
-# Finalize model
-
-  final_rf <- ranger_workflow %>% 
-    finalize_workflow(select_best(ranger_tune, metric = "accuracy")) 
-  
-  final_rs_res <- final_rf %>% 
-    fit_resamples(resamples = hbox_boot1,
-                  metrics = metric_set(roc_auc, accuracy, sens, spec),
-                  control = control_resamples(save_pred = TRUE))
-
-  
-# save objects so model doesn't rerun every time you knit
-  save(df_hbox_model1, hbox_boot1, ranger_recipe, ranger_spec, ranger_tune, final_rs_res, file = "model1.Rdata")
-
-```
-
-```{r fig2b_plot}
-
-final_res_conf_mat <- final_rs_res %>% conf_mat_resampled() 
-final_res_conf_mat %>% 
-  group_by(Truth) %>% 
-  summarise(total_true = sum(Freq)) %>% 
-  right_join(final_res_conf_mat) %>% 
-  mutate(`Percent occurence` = round(Freq/total_true*100, 2)) %>% 
-  
-  # plot
-  ggplot(aes(x = Truth, y = Prediction, fill = `Percent occurence`, label = `Percent occurence`)) +
-  geom_tile() +
-  geom_text(size = 8) +
-  scale_fill_gradient2(low = "#4575b4", high = "#d73027") +
-  
-  theme_bw() +
-  theme(axis.title = element_text(size = 25),
-        axis.text = element_text(size = 20),
-        legend.title = element_text(size = 20),
-        legend.text = element_text(size = 15))
-
-```
-
-#### C. Variable importance
-```{r fig2c}
-
-# new specification for ranger model
-imp_spec <- ranger_spec %>% 
-  finalize_model(select_best(ranger_tune, metric = "accuracy")) %>% 
-  set_engine("ranger", importance = "permutation")
-
-# plot importance 
-workflow() %>% 
-  add_recipe(ranger_recipe) %>% 
-  add_model(imp_spec) %>% 
-  fit(df_hbox_model1) %>% 
-  pull_workflow_fit() %>% 
-  vip(aesthetics = list(alpha = 0.8, fill = "midnightblue")) +
-  
-  theme_bw() +
-  theme(axis.text = element_text(size = 20),
-        axis.title = element_text(size = 25))
-
-```
-
-**Figure 2.** Random forest modeling demonstrates a high degree of discriminatory power between healthy patients and patients with malaria (uncomplicated and cerebral) using primarily on hematological parameters. **(A)** Principal component analysis (PCA) of study patients using hematological and NIRS data. Variables are plotted as vectors in the direction and magnitude of the PC to which they contribute. Color indicates patient status, ellipses show median and 95% confidence interval on the cluster. **(B)** Confusion matrix representing the results of random forest modeling averaged across 25 bootstrap resamples. Freq indicates the average number of times that the event (shown by the x- and y-axes) occurred. **(C)** Relative contribution of the variables to the discriminatory power of the model (showing top 10 only).
 
 ### Figure 3: Logistic regression on CM vs UM
 
@@ -536,49 +386,6 @@ hbox_final2 %>%
 ```
 
 **Table 2.** Evaluation of the logistic regression model across 1000 bootstrap resamples. 
-
-### Figure 4: Relationship between THCα and THC sd
-
-```{r fig4}
-
-cm_model <- lm(THC_sd ~ THC_alpha, data = df_hbox_log_voi %>% filter(Status == "CM"))
-um_model <- lm(THC_sd ~ THC_alpha, data = df_hbox_log_voi %>% filter(Status == "UM"))
-
-df_hbox_log_voi %>% dplyr::rename("THC sd" = "THC_sd", "THCα" = "THC_alpha") %>%
-  
-  ggplot(aes(x = THCα, y = `THC sd`, color = Status, fill = Status)) +
-  geom_point(size = 3, alpha = 0.7) +
-  geom_smooth(method = "lm", se = FALSE) +
-  
-  geom_text(label = paste0("y = ", 
-                           round(cm_model$coefficients[[1]], 2), 
-                           " + ", 
-                           round(cm_model$coefficients[[2]], 2), 
-                           "x ; R^2 = ", 
-                           round(summary(cm_model)$adj.r.squared, 2)),
-            x = 1.3, y = 0.55,
-            color = "#00BFC4",
-            size = 6) +
-  
-    geom_text(label = paste0("y = ", 
-                           round(um_model$coefficients[[1]], 2), 
-                           " + ", 
-                           round(um_model$coefficients[[2]], 2), 
-                           "x ; R^2 = ", 
-                           round(summary(um_model)$adj.r.squared, 2)),
-            x = 1.3, y = 0.6,
-            color = "#F8766D",
-            size = 6) +
-
-  theme_bw() +
-  theme(axis.text = element_text(size = 20),
-        axis.title = element_text(size = 25),
-        legend.text = element_text(size = 15),
-        legend.title = element_text(size = 20))
-
-```
-
-**Figure 4.** Scatter plot demonstrating the relationship between THCα and THC sd.
 
 ### Supplementary figure 1: Variable correlations 
 ```{r fig_s1, fig.show = "hold", out.width = "50%", fig.height = 12, fig.width = 15}
