@@ -118,7 +118,9 @@ df_sex <- df_hbox %>%
   mutate_if(is.numeric, as.character)
 
 # Age, hematocrit, and lactate
-df_hbox %>% 
+df_clinical_res <- df_hbox %>% 
+  
+  dplyr::filter(Subject.ID..NIAID. != "TM1018") %>% 
   
   group_by(Status) %>% 
   summarise(`Age (years)` = median(Age, na.rm = TRUE), age_range = range(Age, na.rm = TRUE),
@@ -159,11 +161,16 @@ df_hbox %>%
   dplyr::rename(" " = "variable",
                 "Healthy volunteers (HV)" = "HV",
                 "Uncomplicated malaria (UM) patients" = "UM",
-                "Cerebral malaria (CM) patients" = "CM") %>% 
-  knitr::kable(align = rep('c', 4))
+                "Cerebral malaria (CM) patients" = "CM")
+
+  # remove lactate data for HV
+  df_clinical_res[11,]$`Healthy volunteers (HV)` <- "--"
+  
+  # create kable df
+  df_clinical_res %>% knitr::kable(align = rep('c', 4))
 
 ```
-**Table 1.** A summary of subject information and hematological data. Group patient data presented as median (range). Note: sex not recorded for 3 CM patients.
+**Table 1.** A summary of subject information and hematological data. Group patient data presented as median (range). Note: Sex not recorded for 3 CM patients; Lactate data removed for HV due to inconsistent data.
 
 ### Figure 1: Visual summary of NIRS variables
 
