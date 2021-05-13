@@ -136,19 +136,85 @@
   
   
   
+# model 5: Cerebral O2 sat + cerebral O2 sat a + THC + THCa --------------------------------------------------------------
+  
+  
+  # select  THC_alpha & THC
+  `df_hbox_model5` <- df_hbox_voi_01 %>% 
+    mutate(`1/10 * THCα` = THCα/10) %>% 
+    dplyr::select(-THCα)
+  
+  # resample
+  set.seed(1012)
+  hbox_boot5 <- bootstraps(df_hbox_model5, times = 100)
+  
+  # recipe
+  hbox_rec5 <- recipe(Status ~ ., data = df_hbox_model5) %>% 
+    step_BoxCox(all_predictors()) %>% 
+    step_nzv(all_predictors())
+  
+  # workflow
+  hbox_wf5 <- workflow() %>% 
+    add_recipe(hbox_rec5)
+  
+  # logistic regression model spec
+  glm_spec5 <- logistic_reg() %>% 
+    set_engine("glm")
+  
+  glm_res5 <- hbox_wf5 %>% 
+    add_model(glm_spec5) %>%
+    fit_resamples(
+      resamples = hbox_boot5,
+      metrics = metric_set(roc_auc, accuracy, sensitivity, specificity),
+      control = tune::control_resamples(save_pred = TRUE, verbose = TRUE)
+    )
+  
+  # select best model to be used for evaluation
+  glm_best5 <- glm_res5 %>% select_best("roc_auc")
+  
+  # finalize model
+  hbox_final5 <- hbox_wf5 %>% 
+    add_model(glm_spec5) %>% 
+    finalize_workflow(glm_best5) %>%
+    fit(df_hbox_model5) %>%
+    pull_workflow_fit()
+  
+  ## Evaluate
+  
+  collect_metrics(glm_res5) %>% 
+    dplyr::select(.metric, mean, std_err) %>% 
+    mutate(mean = mean*100, std_err = std_err*100) %>% 
+    mutate(Metric = c("Accuracy", "ROC AUC", "Sensitivity", "Specificity")) %>% 
+    dplyr::select(c("Metric", "mean", "std_err")) %>% 
+    
+    dplyr::rename("Mean across resamples" = "mean", "Standard error" = "std_err") %>% 
+    mutate_if(is.numeric, round, 2) # model performs worse
+  
+  hbox_final5 %>% 
+    tidy() %>% 
+    mutate(p.value = as.character(p.value)) %>% 
+    mutate_if(is.numeric, round, 2) %>% 
+    mutate(p.value = as.numeric(p.value)) %>% 
+    mutate(p.value = scientific(p.value, digits = 3)) %>% 
+    dplyr::rename("Term" = "term", "Coefficient" = "estimate", "Standard error" = "std.error", 
+                  "Statistic" = "statistic", "p-value" = "p.value") # THC ns
+  
+  
 
 # compare models ----------------------------------------------------------
 
   collect_metrics(glm_res2)  # THCa + THC sd
   collect_metrics(glm_res3)  # THCa
   collect_metrics(glm_res4)  # THC + THCa
-  
+  collect_metrics(glm_res5)  # THC + THCa + Ceb O2 sat + Ceb O2 sat a
   
   tidy(hbox_final2)
   tidy(hbox_final3)
   tidy(hbox_final4)
+  tidy(hbox_final5)
 
-  glm(Status ~ THC + THC_alpha, data = df_hbox_voi_01, family = "binomial") %>% summary()
+  glm(Status ~ ., data = df_hbox_voi_01, family = "binomial") %>% summary()
+  glm(Status ~ THC + THCα + `Cerebral O2 sat`, data = df_hbox_voi_01, family = "binomial") %>% summary()
+  glm(Status ~ THC + THCα, data = df_hbox_voi_01, family = "binomial") %>% summary()
+  glm(Status ~ THCα, data = df_hbox_voi_01, family = "binomial") %>% summary()
   
-
-                     
