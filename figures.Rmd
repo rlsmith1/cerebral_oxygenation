@@ -117,40 +117,43 @@ df_sex <- df_hbox %>%
   dplyr::select(variable, everything()) %>% 
   mutate_if(is.numeric, as.character)
 
-# Age, hematocrit, and lactate
+# other numeric variables
+
 df_clinical_res <- df_hbox %>% 
   
   dplyr::filter(Subject.ID..NIAID. != "TM1018") %>% 
   
   group_by(Status) %>% 
-  summarise(`Age (years)` = median(Age, na.rm = TRUE), age_range = range(Age, na.rm = TRUE),
+  summarise(`Age (years)` = median(Age, na.rm = TRUE), age_q1 = quantile(Age, 0.25, na.rm = TRUE), age_q3 = quantile(Age, 0.75, na.rm = TRUE),
             
-            `Temperature (°C)` = median(Temperature, na.rm = TRUE), temp_range = range(Temperature, na.rm = TRUE),
-            `Heart rate` = median(HR, na.rm = TRUE), hr_range = range(HR, na.rm = TRUE),
-            `Systolic BP` = median(BP.Systolic, na.rm = TRUE), sys_range = range(BP.Systolic, na.rm = TRUE),
-            `Diastolic BP` = median(BP.Diastolic, na.rm = TRUE), dia_range = range(BP.Diastolic, na.rm = TRUE),
-            `Respiration rate` = median(RR, na.rm = TRUE), rr_range = range(RR, na.rm = TRUE),
-            `O~2~ saturation` = median(O2.Sat, na.rm = TRUE), o2_range = range(O2.Sat, na.rm = TRUE),
+            `Temperature (°C)` = median(Temperature, na.rm = TRUE), temp_q1 = quantile(Temperature, 0.25, na.rm = TRUE), temp_q3 = quantile(Temperature, 0.75, na.rm = TRUE),
+            `Heart rate` = median(HR, na.rm = TRUE), hr_q1 = quantile(HR, 0.25, na.rm = TRUE), hr_q3 = quantile(HR, 0.75, na.rm = TRUE),
+            `Systolic BP` = median(BP.Systolic, na.rm = TRUE), sys_q1 = quantile(BP.Systolic, 0.25, na.rm = TRUE), sys_q3 = quantile(BP.Systolic, 0.75, na.rm = TRUE),
+            `Diastolic BP` = median(BP.Diastolic, na.rm = TRUE), dia_q1 = quantile(BP.Diastolic, 0.25, na.rm = TRUE), dia_q3 = quantile(BP.Diastolic, 0.75, na.rm = TRUE),
+            `Respiration rate` = median(RR, na.rm = TRUE), rr_q1 = quantile(RR, 0.25, na.rm = TRUE), rr_q3 = quantile(RR, 0.75, na.rm = TRUE),
+            `O~2~ saturation` = median(O2.Sat, na.rm = TRUE), o2_q1 = quantile(O2.Sat, 0.25, na.rm = TRUE), o2_q3 = quantile(O2.Sat, 0.75, na.rm = TRUE),
             
-            `Hematocrit (%)` = median(Hematocrit, na.rm = TRUE), hem_range = range(Hematocrit, na.rm = TRUE),
-            `Lactate (mmol/L)` = median(Lactate, na.rm = TRUE), lactate_range = range(Lactate, na.rm = TRUE),
-            `Arginine (μmol/L)` = median(Arginine.umol.L, na.rm = TRUE), arg_range = range(Arginine.umol.L, na.rm = TRUE)) %>% 
+            `Hematocrit (%)` = median(Hematocrit, na.rm = TRUE), hem_q1 = quantile(Hematocrit, 0.25, na.rm = TRUE), hem_q3 = quantile(Hematocrit, 0.75, na.rm = TRUE),
+            `Lactate (mmol/L)` = median(Lactate, na.rm = TRUE), lac_q1 = quantile(Lactate, 0.25, na.rm = TRUE), lac_q3 = quantile(Lactate, 0.75, na.rm = TRUE),
+            `Arginine (μmol/L)` = median(Arginine.umol.L, na.rm = TRUE), arg_q1 = quantile(Arginine.umol.L, 0.25, na.rm = TRUE), arg_q3 = quantile(Arginine.umol.L, 0.75, na.rm = TRUE)) %>% 
   mutate_if(is.numeric, round, 1) %>% 
   
-  mutate(`Age (years)` = paste0(`Age (years)`, " (", age_range[1], ", ", age_range[2], ")"),
+  mutate(`Age (years)` = paste0(`Age (years)`, " (", age_q1, ", ", age_q3, ")"),
          
-         `Temperature (°C)` = paste0(`Temperature (°C)`, " (", temp_range[1], ", ", temp_range[2], ")"),
-         `Heart rate` = paste0(`Heart rate`, " (", hr_range[1], ", ", hr_range[2], ")"),
-         `Systolic BP` = paste0(`Systolic BP`, " (", sys_range[1], ", ", sys_range[2], ")"),
-         `Diastolic BP` = paste0(`Diastolic BP`, " (", dia_range[1], ", ", dia_range[2], ")"),
-         `Respiration rate` = paste0(`Respiration rate`, " (", rr_range[1], ", ", rr_range[2], ")"),
-         `O~2~ saturation` = paste0(`O~2~ saturation`, " (", o2_range[1], ", ", o2_range[2], ")"),
+         `Temperature (°C)` = paste0(`Temperature (°C)`, " (", temp_q1, ", ", temp_q3, ")"),
+         `Heart rate` = paste0(`Heart rate`, " (", hr_q1, ", ", hr_q3, ")"),
+         `Systolic BP` = paste0(`Systolic BP`, " (", sys_q1, ", ", sys_q3, ")"),
+         `Diastolic BP` = paste0(`Diastolic BP`, " (", dia_q1, ", ", dia_q3, ")"),
+         `Respiration rate` = paste0(`Respiration rate`, " (", rr_q1, ", ", rr_q3, ")"),
+         `O~2~ saturation` = paste0(`O~2~ saturation`, " (", o2_q1, ", ", o2_q3, ")"),
 
-         `Hematocrit (%)` = paste0(`Hematocrit (%)`, " (", hem_range[1], ", ", hem_range[2], ")"),
-         `Lactate (mmol/L)` = paste0(`Lactate (mmol/L)`, " (", lactate_range[1], ", ", lactate_range[2], ")"),
-         `Arginine (μmol/L)` = paste0(`Arginine (μmol/L)`, " (", arg_range[1], ", ", arg_range[2], ")")) %>% 
-  dplyr::select(-c(age_range, temp_range, hr_range, sys_range, dia_range, rr_range, o2_range, hem_range, lactate_range, arg_range)) %>% 
-  
+         `Hematocrit (%)` = paste0(`Hematocrit (%)`, " (", hem_q1, ", ", hem_q3, ")"),
+         `Lactate (mmol/L)` = paste0(`Lactate (mmol/L)`, " (", lac_q1, ", ", lac_q3, ")"),
+         `Arginine (μmol/L)` = paste0(`Arginine (μmol/L)`, " (", arg_q1, ", ", arg_q3, ")")) %>% 
+  dplyr::select(-c(age_q1, age_q3, 
+                   temp_q1, temp_q3, hr_q1, hr_q3, sys_q1, sys_q3, dia_q1, dia_q3, rr_q1, rr_q3, o2_q1, o2_q3, 
+                   hem_q1, hem_q3, lac_q1, lac_q3, arg_q1, arg_q3)) %>% 
+
   unique() %>% 
   t() %>% 
   row_to_names(row_number = 1) %>% 
@@ -170,11 +173,11 @@ df_clinical_res <- df_hbox %>%
   df_clinical_res %>% knitr::kable(align = rep('c', 4))
 
 ```
-**Table 1.** A summary of subject information and hematological data. Group patient data presented as median (range). Note: Sex not recorded for 3 CM patients; Lactate data removed for HV due to inconsistent data.
+**Table 1.** A summary of subject information and hematological data. Group patient data presented as median (quartile 1, quartile 3). Note: Sex not recorded for 3 CM patients; Lactate data removed for HV due to inconsistent data.
 
 ### Figure 1: Visual summary of NIRS variables
 
-```{r fig1, fig.height = 12}
+```{r fig1}
 
 df_hbox_voi <- df_hbox_impute %>% 
   dplyr::select(c(Status, `Oxy Hb`, `Oxy Hb α`, `Deoxy Hb`, `Deoxy Hb α`, `Cerebral O2 sat`, `Cerebral O2 sat α`, THC, `THCα`)) %>% 
@@ -189,13 +192,13 @@ df_hbox_voi_long <- df_hbox_voi %>%
 
 my_col <- c("CM" = "#00BFC4", "HV" = "#7CAE00", "UM" = "#F8766D")
   
-df_hbox_voi_long %>% 
+df_hbox_voi_long %>% dplyr::filter(variable %in% c("Oxy Hb", "Deoxy Hb", "Cerebral O2 sat", "THC")) %>%
   
   ggplot(aes(x = Status, y = value)) +
   geom_violin(aes(color = Status)) +
   geom_jitter(position = position_jitter(0.2), shape = 1) +
   stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
-  facet_wrap(~variable, scales = "free_y", nrow = 4, ncol = 2) +
+  facet_wrap(~variable, scales = "free_y", nrow = 2, ncol = 2) +
   
   scale_color_manual(values = my_col) +
   theme_bw() +
@@ -219,13 +222,51 @@ kruskal.test(`Cerebral O2 sat` ~ Status, data = df_hbox_voi)
 
 ```
 
-**Figure 1.** Differences in variables measured by Oxiplex and associated α values among patient groups. THC levels were different between all three groups (Kruskal-Wallis adjusted p-value = 3.25x10^-6^; Dunn Test post-hoc adjusted p-values: CM vs HV = 1.66x10^-6^, CM vs UM = .032, HV vs UM = .033). Levels of cerebral O~2~ saturation did not differ among groups (Kruskal-Wallis adjusted p-value = .07). Note: removed one outlier from Deoxy Hb α (3.52).
+**Figure 1.** Shown are the variables measured by Oxiplex, plotted by patient status THC levels were different between all three groups (Kruskal-Wallis adjusted p-value = 3.25x10^-6^; Dunn Test post-hoc adjusted p-values: CM vs HV = 1.66x10^-6^, CM vs UM = .032, HV vs UM = .033). Levels of cerebral O~2~ saturation did not differ among groups (Kruskal-Wallis adjusted p-value = .07). 
 
-### Figure 2: Logistic regression on CM vs UM
+### Figure 2: Visual summary of α values associated with NIRS variables
+
+```{r fig2}
+
+df_hbox_voi <- df_hbox_impute %>% 
+  dplyr::select(c(Status, `Oxy Hb`, `Oxy Hb α`, `Deoxy Hb`, `Deoxy Hb α`, `Cerebral O2 sat`, `Cerebral O2 sat α`, THC, `THCα`)) %>% 
+  dplyr::filter(`Deoxy Hb α` < 3)
+
+df_hbox_voi_long <- df_hbox_voi %>% 
+  pivot_longer(2:9, names_to = "variable", values_to = "value") %>%
+  mutate(variable = factor(variable, levels = c("Oxy Hb", "Oxy Hb α",   
+                                                 "Deoxy Hb", "Deoxy Hb α", 
+                                                "Cerebral O2 sat", "Cerebral O2 sat α", 
+                                                "THC", "THCα"))) 
+
+my_col <- c("CM" = "#00BFC4", "HV" = "#7CAE00", "UM" = "#F8766D")
+  
+df_hbox_voi_long %>% dplyr::filter(variable %in% c("Oxy Hb α", "Deoxy Hb α", "Cerebral O2 sat α", "THCα")) %>% 
+  
+  ggplot(aes(x = Status, y = value)) +
+  geom_violin(aes(color = Status)) +
+  geom_jitter(position = position_jitter(0.2), shape = 1) +
+  stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
+  facet_wrap(~variable, scales = "free_y", nrow = 2, ncol = 2) +
+  
+  scale_color_manual(values = my_col) +
+  theme_bw() +
+  theme(legend.position = "none")  +
+  
+  theme(strip.text = element_text(size = 15),
+        axis.title = element_text(size = 15),
+        axis.title.y = element_blank(),
+        axis.text = element_text(size = 15))
+
+```
+
+**Figure 2** Shown are the α values associated with variables measured by the Oxiplex, plotted by patient status. Note: One outlier was removed from Deoxy Hb α (3.52).
+
+### Figure 3: Logistic regression on CM vs UM
 
 #### A. PCA
 
-```{r fig2a}
+```{r fig3a}
 # remove healthy volunteers, Oxy Hb, and Deoxy Hb from analysis
 df_hbox_log_voi <- df_hbox_voi %>% 
   dplyr::filter(Status != "HV") %>% 
@@ -283,7 +324,7 @@ df_pnts <- my_pca$x %>% as_tibble() %>% mutate(group = groups)
 
 #### B. Confusion matrix
 
-```{r fig2b_prep, eval = FALSE}
+```{r fig3b_prep, eval = FALSE}
 
 # convert to 0s and 1s
 df_hbox_voi_01 <- df_hbox_log_voi %>% mutate(Status = ifelse(Status == "CM", 1, 0) %>% as.factor())
@@ -333,7 +374,7 @@ save(glm_res, hbox_final, file = "glm_model.Rdata")
 
 ```   
 
-```{r fig2b_plot}
+```{r fig3b_plot}
 
 final_res_conf_mat <- glm_res %>% 
   conf_mat_resampled() %>% 
@@ -360,7 +401,7 @@ final_res_conf_mat %>%
 
 ```
 
-**Figure 2** Logistic regression model discriminating CM vs UM patients using only THCα as the predictor. **(A)** PCA of patients with CM and UM as determined by NIRS variables. Color indicates patient status, ellipses show median and 95% confidence interval on the cluster. **(B)** Confusion matrix representing the results of the logistic regression model averaged across 1000 bootstrap resamples. Percent occurrence indicates percentage times that the event (shown by the x- and y-axes) occurred.
+**Figure 3** Logistic regression model discriminating CM vs UM patients using only THCα as the predictor. **(A)** PCA of patients with CM and UM as determined by NIRS variables. Color indicates patient status, ellipses show median and 95% confidence interval on the cluster. **(B)** Confusion matrix representing the results of the logistic regression model averaged across 1000 bootstrap resamples. Percent occurrence indicates percentage times that the event (shown by the x- and y-axes) occurred.
 
 ### Table 2. Logistic regression model evaluation
 
