@@ -730,18 +730,32 @@
   
   df_thc_filt_pass1 <- df_thc_filt_pass %>% dplyr::filter(number == 1)
   
-  DFA(df_thc_filt_pass1$band_pass)
+  dfa::.DFA(df_thc_filt_pass1$band_pass)
   
-
-  library(nonlinearTseries)
-  
-  
+  file <- NYA2008
+  dfa.res <- DFA::DFA(NYA2008)
   
   
+library(MFDFA)  
+  a<-0.9
+  N<-1024
+  tsx<-MFsim(N,a)
+  scale=10:100
+  q<--10:10
+  m<-1
+  b<-MFDFA(tsx, scale, m, q) 
   
+  dev.new()
+  par(mai=rep(1, 4))
+  plot(q, b$Hq, col=1, axes= F, ylab=expression('h'[q]), pch=16, cex.lab=1.8,
+       cex.axis=1.8, main="Hurst exponent",
+       ylim=c(min(b$Hq),max(b$Hq)))
+  grid(col="midnightblue")
+  axis(1)
+  axis(2)
   
-  
-  
+  alpha <- b$spec %>% as_tibble()
+  alpha %>% ggplot(aes(x = 1:20, y = hq)) + geom_point()
   
   
   

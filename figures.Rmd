@@ -307,11 +307,15 @@ df_hbox_model1 <- df_hbox_trim %>%
 
 ```{r fig2b_plot}
 
-final_rs_res %>% 
-  conf_mat_resampled() %>%
+final_res_conf_mat <- final_rs_res %>% conf_mat_resampled() 
+final_res_conf_mat %>% 
+  group_by(Truth) %>% 
+  summarise(total_true = sum(Freq)) %>% 
+  right_join(final_res_conf_mat) %>% 
+  mutate(`Percent occurence` = round(Freq/total_true*100, 2)) %>% 
   
   # plot
-  ggplot(aes(x = Truth, y = Prediction, fill = Freq, label = Freq)) +
+  ggplot(aes(x = Truth, y = Prediction, fill = `Percent occurence`, label = `Percent occurence`)) +
   geom_tile() +
   geom_text(size = 8) +
   scale_fill_gradient2(low = "#4575b4", high = "#d73027") +
@@ -467,13 +471,19 @@ save(glm_res2, hbox_final2, file = "model2.Rdata")
 
 ```{r fig3b_plot}
 
-glm_res2 %>% 
+final_res_conf_mat2 <- glm_res2 %>% 
   conf_mat_resampled() %>% 
   mutate(Prediction = ifelse(Prediction == 1, "CM", "UM")) %>% 
-  mutate(Truth = ifelse(Truth == 1, "CM", "UM")) %>% 
+  mutate(Truth = ifelse(Truth == 1, "CM", "UM"))
   
+final_res_conf_mat2 %>% 
+  group_by(Truth) %>% 
+  summarise(total_true = sum(Freq)) %>% 
+  right_join(final_res_conf_mat2) %>% 
+  mutate(`Percent occurence` = round(Freq/total_true*100, 2)) %>% 
+
   # plot
-  ggplot(aes(x = Truth, y = Prediction, fill = Freq, label = Freq)) +
+  ggplot(aes(x = Truth, y = Prediction, fill = `Percent occurence`, label = `Percent occurence`)) +
   geom_tile() +
   geom_text(size = 6) +
   scale_fill_gradient2(low = "#4575b4", high = "#d73027") +
