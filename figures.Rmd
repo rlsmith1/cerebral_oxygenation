@@ -302,9 +302,9 @@ df_pnts <- my_pca$x %>% as_tibble() %>% mutate(group = groups)
             na.rm = FALSE) +
   
   # plot variables
-  geom_point(data = df_vars, aes(x = PC1*10, y = PC2*10)) +
-  geom_text_repel(data = df_vars, aes(x = PC1*10, y = PC2*10, label = variable, size = 10), show.legend = FALSE) +
-  geom_segment(data = df_vars, aes(x = 0, y = 0, xend = PC1*10, yend = PC2*10), arrow = arrow()) +
+  geom_point(data = df_vars, aes(x = PC1*5, y = PC2*5)) +
+  geom_text_repel(data = df_vars, aes(x = PC1*5, y = PC2*5, label = variable, size = 10), show.legend = FALSE) +
+  geom_segment(data = df_vars, aes(x = 0, y = 0, xend = PC1*5, yend = PC2*5), arrow = arrow()) +
 
   # draw lines
   geom_vline(xintercept = 0, lty = 2, color = "black") +
