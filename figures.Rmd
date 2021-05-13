@@ -21,8 +21,7 @@ library(scales)
 library(reshape)
 
 
-load("model1.Rdata")
-load("model2.Rdata")
+load("glm_model.Rdata")
 
 ```
 
@@ -168,10 +167,10 @@ df_hbox %>%
 
 ### Figure 1: Visual summary of NIRS variables
 
-```{r fig1}
+```{r fig1, fig.height = 12}
 
 df_hbox_voi <- df_hbox_impute %>% 
-  dplyr::select(c(Status, `Deoxy Hb`, `Deoxy Hb α`, `Oxy Hb`, `Oxy Hb α`, `Cerebral O2 sat`, `Cerebral O2 sat α`, THC, `THCα`)) %>% 
+  dplyr::select(c(Status, `Oxy Hb`, `Oxy Hb α`, `Deoxy Hb`, `Deoxy Hb α`, `Cerebral O2 sat`, `Cerebral O2 sat α`, THC, `THCα`)) %>% 
   dplyr::filter(`Deoxy Hb α` < 3)
 
 df_hbox_voi_long <- df_hbox_voi %>% 
@@ -213,62 +212,59 @@ kruskal.test(`Cerebral O2 sat` ~ Status, data = df_hbox_voi)
 
 ```
 
-**Figure 1.** Differences in variables measured by Oxiplex and associated α values among patient groups. THC levels were different between all three groups (Kruskal-Wallis adjusted p-value = 3.25x10^-6^; Dunn Test post-hoc adjusted p-values: CM vs HV = 1.66x10^-6^, CM vs UM = .032, HV vs UM = .033). Levels of cerebral O~2~ saturation did not differ among groups (Kruskal-Wallis adjusted p-value = .07). Note: removed one outlier from Deoxy Hb α (3.52)
+**Figure 1.** Differences in variables measured by Oxiplex and associated α values among patient groups. THC levels were different between all three groups (Kruskal-Wallis adjusted p-value = 3.25x10^-6^; Dunn Test post-hoc adjusted p-values: CM vs HV = 1.66x10^-6^, CM vs UM = .032, HV vs UM = .033). Levels of cerebral O~2~ saturation did not differ among groups (Kruskal-Wallis adjusted p-value = .07). Note: removed one outlier from Deoxy Hb α (3.52).
 
-### Figure 3: Logistic regression on CM vs UM
+### Figure 2: Logistic regression on CM vs UM
 
 #### A. PCA
 
-```{r fig3a}
-# select variables of interest
-df_hbox_log_voi <- df_hbox_impute %>% 
-  filter(Status != "HV") %>% 
-  dplyr::select(2, 11:19)
+```{r fig2a}
+# remove healthy volunteers, Oxy Hb, and Deoxy Hb from analysis
+df_hbox_log_voi <- df_hbox_voi %>% 
+  dplyr::filter(Status != "HV") %>% 
+  dplyr::select(-(2:5))
 
 # convert tibble to df
 df_hbox_voi_df <- df_hbox_log_voi %>% 
   dplyr::select(-Status) %>% 
-  dplyr::rename("THC sd" = "THC_sd", "THCα" = "THC_alpha", "Deoxy Hb" = "DeoxyHb", "Oxy Hb" = "OxyHb", 
-                "O2 sat" = "O2sat", "O2 sat α" = "O2sat_alpha", "Deoxy Hb α" = "DeoxyHb_alpha", "Oxy Hb α" = "OxyHb_alpha") %>% 
   as.data.frame() 
 rownames(df_hbox_voi_df) <- df_hbox_impute %>% dplyr::filter(Status != "HV") %>% .$subject_id
 
 # compute PCA
-my_pca2 <- prcomp(df_hbox_voi_df, scale = TRUE)
+my_pca <- prcomp(df_hbox_voi_df, scale = TRUE)
 
 # define groups
-groups2 <- as.factor(df_hbox_log_voi$Status)
+groups <- as.factor(df_hbox_log_voi$Status)
 
 # Eigenvalues
-pca_eig_val2 <- get_eigenvalue(my_pca2)
+pca_eig_val <- get_eigenvalue(my_pca)
 
 # two data frames for plotting
-df_vars2 <- my_pca2$rotation %>% as_tibble() %>% mutate(variable = rownames(my_pca2$rotation))
-df_pnts2 <- my_pca2$x %>% as_tibble() %>% mutate(group = groups2) 
+df_vars <- my_pca$rotation %>% as_tibble() %>% mutate(variable = rownames(my_pca$rotation))
+df_pnts <- my_pca$x %>% as_tibble() %>% mutate(group = groups) 
 
 # plot
 
   # plot patients
   ggplot() +
-  geom_point(data = df_pnts2, mapping = aes(x = PC1, y = PC2, color = group), 
-             size = 3) +
-  stat_conf_ellipse(data = df_pnts2, mapping = aes(x = PC1, y = PC2, color = group, fill = group),
+  geom_point(data = df_pnts, mapping = aes(x = PC1, y = PC2, color = group), size = 3) +
+  stat_conf_ellipse(data = df_pnts, mapping = aes(x = PC1, y = PC2, color = group, fill = group),
                     level = 0.95, npoint = 100, bary = TRUE, alpha = 0.1, geom = "polygon") +
-  stat_mean(data = df_pnts2, mapping = aes(x = PC1, y = PC2, color = group, shape = group),
+  stat_mean(data = df_pnts, mapping = aes(x = PC1, y = PC2, color = group, shape = group),
             na.rm = FALSE) +
   
   # plot variables
-  geom_point(data = df_vars2, aes(x = PC1*10, y = PC2*10)) +
-  geom_text_repel(data = df_vars2, aes(x = PC1*10, y = PC2*10, label = variable, size = 10), show.legend = FALSE) +
-  geom_segment(data = df_vars2, aes(x = 0, y = 0, xend = PC1*10, yend = PC2*10), arrow = arrow()) +
+  geom_point(data = df_vars, aes(x = PC1*10, y = PC2*10)) +
+  geom_text_repel(data = df_vars, aes(x = PC1*10, y = PC2*10, label = variable, size = 10), show.legend = FALSE) +
+  geom_segment(data = df_vars, aes(x = 0, y = 0, xend = PC1*10, yend = PC2*10), arrow = arrow()) +
 
   # draw lines
   geom_vline(xintercept = 0, lty = 2, color = "black") +
   geom_hline(yintercept = 0, lty = 2, color = "black") +
   
   # design
-  xlab(paste0("PC1: ", round(pca_eig_val2$variance.percent[1], 2), "% of variance")) +
-  ylab(paste0("PC2: ", round(pca_eig_val2$variance.percent[2], 2), "% of variance")) +
+  xlab(paste0("PC1: ", round(pca_eig_val$variance.percent[1], 2), "% of variance")) +
+  ylab(paste0("PC2: ", round(pca_eig_val$variance.percent[2], 2), "% of variance")) +
 
   theme_bw() +
   theme(axis.text = element_text(size = 20),
@@ -280,69 +276,67 @@ df_pnts2 <- my_pca2$x %>% as_tibble() %>% mutate(group = groups2)
 
 #### B. Confusion matrix
 
-```{r fig3b_prep, eval = FALSE}
+```{r fig2b_prep, eval = FALSE}
 
 # convert to 0s and 1s
 df_hbox_voi_01 <- df_hbox_log_voi %>% mutate(Status = ifelse(Status == "CM", 1, 0) %>% as.factor())
 
 # select only significant variables
-df_hbox_model2 <- df_hbox_voi_01 %>% 
-  dplyr::select(c(Status, THC_alpha, THC_sd)) %>% 
-  dplyr::rename("THCα" = "THC_alpha", "THC sd" = "THC_sd") %>% 
+df_hbox_model <- df_hbox_voi_01 %>% 
+  dplyr::select(c(Status, THCα)) %>% 
   mutate(`1/10 * THCα` = THCα/10) %>% 
   dplyr::select(-THCα)
 
 # resample
-set.seed(789)
-hbox_boot2 <- bootstraps(df_hbox_model2, times = 1000)
+set.seed(123)
+hbox_boot <- bootstraps(df_hbox_model, times = 1000)
 
 # recipe
-hbox_rec2 <- recipe(Status ~ ., data = df_hbox_model2) %>% 
+hbox_rec <- recipe(Status ~ ., data = df_hbox_model) %>% 
   step_BoxCox(all_predictors()) %>% 
   step_nzv(all_predictors())
 
-# workflow
-hbox_wf2 <- workflow() %>% 
-  add_recipe(hbox_rec2)
+# create workflow
+hbox_wf <- workflow() %>% add_recipe(hbox_rec)
 
-# logistic regression model spec
-glm_spec2 <- logistic_reg() %>% 
-  set_engine("glm")
+# logistic regression model specifications
+glm_spec <- logistic_reg() %>% set_engine("glm")
 
-glm_res2 <- hbox_wf2 %>% 
-  add_model(glm_spec2) %>%
+# create model on 1000 different resamples
+glm_res <- hbox_wf %>% 
+  add_model(glm_spec) %>%
   fit_resamples(
-    resamples = hbox_boot2,
+    resamples = hbox_boot,
     metrics = metric_set(roc_auc, accuracy, sensitivity, specificity),
     control = tune::control_resamples(save_pred = TRUE, verbose = TRUE)
   )
 
 # select best model to be used for evaluation
-glm_best2 <- glm_res2 %>% select_best("roc_auc")
+glm_best <- glm_res %>% select_best("roc_auc")
 
 # finalize model
-hbox_final2 <- hbox_wf2 %>% 
-  add_model(glm_spec2) %>% 
-  finalize_workflow(glm_best2) %>%
-  fit(df_hbox_model2) %>%
+hbox_final <- hbox_wf %>% 
+  add_model(glm_spec) %>% 
+  finalize_workflow(glm_best) %>%
+  fit(df_hbox_model) %>%
   pull_workflow_fit()
 
 # save objects so model doesn't rerun 
-save(glm_res2, hbox_final2, file = "model2.Rdata")
+save(glm_res, hbox_final, file = "glm_model.Rdata")
 
 ```   
 
-```{r fig3b_plot}
+```{r fig2b_plot}
 
-final_res_conf_mat2 <- glm_res2 %>% 
+final_res_conf_mat <- glm_res %>% 
   conf_mat_resampled() %>% 
   mutate(Prediction = ifelse(Prediction == 1, "CM", "UM")) %>% 
   mutate(Truth = ifelse(Truth == 1, "CM", "UM"))
   
-final_res_conf_mat2 %>% 
+final_res_conf_mat %>% 
   group_by(Truth) %>% 
   summarise(total_true = sum(Freq)) %>% 
-  right_join(final_res_conf_mat2) %>% 
+  right_join(final_res_conf_mat) %>% 
   mutate(`Percent occurence` = round(Freq/total_true*100, 2)) %>% 
 
   # plot
@@ -359,14 +353,14 @@ final_res_conf_mat2 %>%
 
 ```
 
-**Figure 3** Logistic regression model discriminating CM vs UM patients using only THCα and THC sd as predictors. **(A)** PCA of patients with CM and UM as determined by NIRS variables. Color indicates patient status, ellipses show median and 95% confidence interval on the cluster. **(B)** Confusion matrix representing the results of the logistic regression model averaged across 1000 bootstrap resamples. Freq indicates the average number of times that the event (shown by the x- and y-axes) occurred.
+**Figure 2** Logistic regression model discriminating CM vs UM patients using only THCα as the predictor. **(A)** PCA of patients with CM and UM as determined by NIRS variables. Color indicates patient status, ellipses show median and 95% confidence interval on the cluster. **(B)** Confusion matrix representing the results of the logistic regression model averaged across 1000 bootstrap resamples. Percent occurrence indicates percentage times that the event (shown by the x- and y-axes) occurred.
 
 ### Table 2. Logistic regression model evaluation
 
 #### A. Model metrics
 ```{r table2a}
 
-collect_metrics(glm_res2) %>% 
+collect_metrics(glm_res) %>% 
   dplyr::select(.metric, mean, std_err) %>% 
   mutate(mean = mean*100, std_err = std_err*100) %>% 
   mutate(Metric = c("Accuracy", "ROC AUC", "Sensitivity", "Specificity")) %>% 
@@ -383,7 +377,7 @@ collect_metrics(glm_res2) %>%
 #### B. Coefficients
 ```{r table2b}
 
-hbox_final2 %>% 
+hbox_final %>% 
   tidy() %>% 
   mutate(p.value = as.character(p.value)) %>% 
   mutate_if(is.numeric, round, 2) %>% 
@@ -400,7 +394,7 @@ hbox_final2 %>%
 
 **Table 2.** Evaluation of the logistic regression model across 1000 bootstrap resamples. 
 
-### Supplementary figure 1: Variable correlations 
+### Supplementary figure 1: Spearman correlations of NIRS variables 
 ```{r fig_s1, fig.show = "hold", out.width = "50%", fig.height = 12, fig.width = 15}
 
 # calculate spearman correlations in each group
@@ -414,16 +408,11 @@ f_calc_cor <- function(df, status) {
   
 }
 
-df_hbox_cor <- df_hbox_impute %>% 
-  dplyr::rename("THC sd" = "THC_sd", "THCα" = "THC_alpha", "Deoxy Hb" = "DeoxyHb", "Oxy Hb" = "OxyHb", 
-                "O2 sat" = "O2sat", "O2 sat α" = "O2sat_alpha", "Deoxy Hb α" = "DeoxyHb_alpha", "Oxy Hb α" = "OxyHb_alpha") %>% 
-  dplyr::select(Status, `Deoxy Hb`, `Oxy Hb`, `O2 sat`, THC, `THC sd`, `Deoxy Hb α`, `Oxy Hb α`, `O2 sat α`, THCα)
+m_cor_hv <- df_hbox_voi %>% f_calc_cor(status = "HV")
 
-m_cor_hv <- df_hbox_cor %>% f_calc_cor(status = "HV")
+m_cor_um <- df_hbox_voi %>% f_calc_cor(status = "UM")
 
-m_cor_um <- df_hbox_cor %>% f_calc_cor(status = "UM")
-
-m_cor_cm <- df_hbox_cor %>% f_calc_cor(status = "CM")
+m_cor_cm <- df_hbox_voi %>% f_calc_cor(status = "CM")
 
 # correlation matrix
 
@@ -432,7 +421,7 @@ f_plot_cor <- function(mat) {
   
   melt(mat) %>% 
     
-    mutate_if(is.factor, factor, levels = c("Deoxy Hb", "Oxy Hb", "O2 sat", "THC", "THC sd", "Deoxy Hb α", "Oxy Hb α", "O2 sat α", "THCα")) %>% 
+    mutate_if(is.factor, factor, levels = c("Oxy Hb", "Deoxy Hb", "Cerebral O2 sat", "THC", "Oxy Hb α", "Deoxy Hb α", "Cerebral O2 sat α", "THCα")) %>% 
     
     ggplot(aes(x = X1, y = X2, fill = value, label = round(value, 2))) + 
     geom_tile() +
@@ -441,6 +430,7 @@ f_plot_cor <- function(mat) {
     
     xlab("") +
     ylab("") +
+    theme_bw() +
     theme(axis.text.x = element_text(angle = 45, hjust = 0.9),
           axis.text = element_text(size = 35),
           legend.text = element_text(size = 40),
@@ -468,14 +458,14 @@ f_plot_cor <- function(mat) {
 **Figure S1.** Shown are the spearman correlations among variables measured by Oxiplex and their associated alpha values. Red indicates a positive correlation; blue indicates a negative correlation.
 
 ### Supplementary figure 2: Logistic regression curves of NIRS variables
-```{r fig_s2}
+```{r fig_s2, fig.height = 12}
 
 df_hbox_voi_long %>% mutate(Status = as.numeric(ifelse(Status == "CM", 1, 0))) %>% 
   
   ggplot(aes(x = value, y = Status)) +
   geom_point() +
   geom_smooth(method = "glm", method.args = list(family = "binomial")) +
-  facet_wrap(~variable, scales = "free_x") +
+  facet_wrap(~variable, scales = "free_x", nrow = 4, ncol = 2) +
   
   ylab("Status: 1 = CM, 0 = UM") +
   xlab("") +
@@ -489,4 +479,4 @@ df_hbox_voi_long %>% mutate(Status = as.numeric(ifelse(Status == "CM", 1, 0))) %
 
 ```
 
-**Figure S2.** Plotted are the individual logistic regression curves of individual variables tested for their discriminatory power between UM and CM. On the y-axis, 1 represents CM while 0 represents UM. A steeper curve indicates higher disciminatory power
+**Figure S2.** Plotted are the individual logistic regression curves of individual variables tested for their discriminatory power between UM and CM. On the y-axis, 1 represents CM while 0 represents UM. A steeper curve indicates higher discriminatory power
