@@ -11,6 +11,7 @@ knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, comment = 
 
 library(tidyverse)
 library(janitor)
+library(FSA)
 library(factoextra)
 library(ggrepel)
 library(ggpubr)
@@ -170,15 +171,15 @@ df_hbox %>%
 ```{r fig1}
 
 df_hbox_voi <- df_hbox_impute %>% 
-  dplyr::select(c(Status, DeoxyHb, DeoxyHb_alpha, OxyHb, OxyHb_alpha, O2sat, O2sat_alpha, THC, THC_alpha, THC_sd)) %>% 
-  dplyr::filter(DeoxyHb_alpha < 3) %>% 
-  dplyr::rename("THC sd" = "THC_sd", "THCα" = "THC_alpha", "Deoxy Hb" = "DeoxyHb", "Oxy Hb" = "OxyHb", 
-                "O2 sat" = "O2sat", "O2 sat α" = "O2sat_alpha", "Deoxy Hb α" = "DeoxyHb_alpha", "Oxy Hb α" = "OxyHb_alpha")
+  dplyr::select(c(Status, `Deoxy Hb`, `Deoxy Hb α`, `Oxy Hb`, `Oxy Hb α`, `Cerebral O2 sat`, `Cerebral O2 sat α`, THC, `THCα`)) %>% 
+  dplyr::filter(`Deoxy Hb α` < 3)
 
 df_hbox_voi_long <- df_hbox_voi %>% 
-  pivot_longer(2:10, names_to = "variable", values_to = "value") %>%
-  mutate(variable = factor(variable, levels = c("Deoxy Hb", "Oxy Hb", "O2 sat", "THC", "THC sd", 
-                                                "Deoxy Hb α", "Oxy Hb α", "O2 sat α", "THCα"))) 
+  pivot_longer(2:9, names_to = "variable", values_to = "value") %>%
+  mutate(variable = factor(variable, levels = c("Oxy Hb", "Oxy Hb α",   
+                                                 "Deoxy Hb", "Deoxy Hb α", 
+                                                "Cerebral O2 sat", "Cerebral O2 sat α", 
+                                                "THC", "THCα"))) 
 
 my_col <- c("CM" = "#00BFC4", "HV" = "#7CAE00", "UM" = "#F8766D")
   
@@ -188,7 +189,7 @@ df_hbox_voi_long %>%
   geom_violin(aes(color = Status)) +
   geom_jitter(position = position_jitter(0.2), shape = 1) +
   stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
-  facet_wrap(~variable, scales = "free_y") +
+  facet_wrap(~variable, scales = "free_y", nrow = 4, ncol = 2) +
   
   scale_color_manual(values = my_col) +
   theme_bw() +
@@ -200,7 +201,19 @@ df_hbox_voi_long %>%
         axis.text = element_text(size = 15))
 
 ```
-**Figure 1.** Differences in variables measured by Oxiplex and associated alpha values among patient groups. Note: removed one outlier from DeoxyHb alpha (3.52)
+
+```{r fig1.pvals, eval = FALSE}
+
+# THC
+kruskal.test(THC ~ Status, data = df_hbox_voi)
+dunnTest(THC ~ Status, data = df_hbox_voi, method = "bh")
+
+# Cerebral O2 sat
+kruskal.test(`Cerebral O2 sat` ~ Status, data = df_hbox_voi)
+
+```
+
+**Figure 1.** Differences in variables measured by Oxiplex and associated α values among patient groups. THC levels were different between all three groups (Kruskal-Wallis adjusted p-value = 3.25x10^-6^; Dunn Test post-hoc adjusted p-values: CM vs HV = 1.66x10^-6^, CM vs UM = .032, HV vs UM = .033). Levels of cerebral O~2~ saturation did not differ among groups (Kruskal-Wallis adjusted p-value = .07). Note: removed one outlier from Deoxy Hb α (3.52)
 
 ### Figure 3: Logistic regression on CM vs UM
 
