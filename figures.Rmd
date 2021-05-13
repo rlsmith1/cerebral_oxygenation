@@ -92,7 +92,7 @@ df_hbox_long <- df_hbox_trim %>% pivot_longer(cols = 3:ncol(.), names_to = "vari
 
 ```
 
-### Table 1: Summary of hematological data by patient group
+### Table 1: Summary of clinical data by patient group
 
 ```{r table1}
 
