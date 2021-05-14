@@ -465,6 +465,7 @@ df_hbox_voi_long %>% mutate(Status = as.numeric(ifelse(Status == "CM", 1, 0))) %
 ```
 
 **Figure S1.** Plotted are the individual logistic regression curves of individual variables tested for their discriminatory power between UM and CM. On the y-axis, 1 represents CM while 0 represents UM. A steeper curve indicates higher discriminatory power
+
 ### Supplementary figure 2: Spearman correlations of NIRS variables 
 ```{r fig_s2, fig.show = "hold", out.width = "50%", fig.height = 12, fig.width = 15}
 
