@@ -414,7 +414,7 @@ collect_metrics(glm_res) %>%
   mutate(Metric = c("Accuracy", "ROC AUC", "Sensitivity", "Specificity")) %>% 
   dplyr::select(c("Metric", "mean", "std_err")) %>% 
   
-  dplyr::rename("Mean across resamples" = "mean", "Standard error" = "std_err") %>% 
+  dplyr::rename("Mean" = "mean", "Standard error" = "std_err") %>% 
   mutate_if(is.numeric, round, 2) %>% 
   as.data.frame() %>%
     
@@ -440,34 +440,10 @@ hbox_final %>%
 
 ```
 
-**Table 2.** Evaluation of the logistic regression model across 1000 bootstrap resamples. 
+**Table 2.** Evaluation of the best logistic regression model select from 1000.
 
-### Supplementary figure 1: Logistic regression curves of NIRS variables
-```{r fig_s1, fig.height = 12}
-
-df_hbox_voi_long %>% mutate(Status = as.numeric(ifelse(Status == "CM", 1, 0))) %>% 
-  
-  ggplot(aes(x = value, y = Status)) +
-  geom_point() +
-  geom_smooth(method = "glm", method.args = list(family = "binomial")) +
-  facet_wrap(~variable, scales = "free_x", nrow = 4, ncol = 2) +
-  
-  ylab("Status: 1 = CM, 0 = UM") +
-  xlab("") +
-  
-  theme_bw() +
-  theme(axis.text = element_text(size = 20),
-        axis.title = element_text(size = 25),
-        legend.text = element_text(size = 15),
-        legend.title = element_text(size = 20),
-        strip.text = element_text(size = 20))
-
-```
-
-**Figure S1.** Plotted are the individual logistic regression curves of individual variables tested for their discriminatory power between UM and CM. On the y-axis, 1 represents CM while 0 represents UM. A steeper curve indicates higher discriminatory power
-
-### Supplementary figure 2: Spearman correlations of NIRS variables 
-```{r fig_s2, fig.show = "hold", out.width = "50%", fig.height = 12, fig.width = 15}
+### Supplementary figure 1: Spearman correlations of NIRS variables 
+```{r fig_s1, fig.show = "hold", out.width = "50%", fig.height = 12, fig.width = 15}
 
 # calculate spearman correlations in each group
 
@@ -527,5 +503,30 @@ f_plot_cor <- function(mat) {
 
 ```
 
-**Figure S2.** Shown are the spearman correlations among variables measured by Oxiplex and their associated alpha values. Red indicates a positive correlation; blue indicates a negative correlation.
+**Figure S1.** Shown are the spearman correlations among variables measured by Oxiplex and their associated alpha values. Red indicates a positive correlation; blue indicates a negative correlation.
+
+### Supplementary figure 2: Logistic regression curves of NIRS variables
+```{r fig_s2, fig.height = 12}
+
+df_hbox_voi_long %>% mutate(Status = as.numeric(ifelse(Status == "CM", 1, 0))) %>% 
+  
+  ggplot(aes(x = value, y = Status)) +
+  geom_point() +
+  geom_smooth(method = "glm", method.args = list(family = "binomial")) +
+  facet_wrap(~variable, scales = "free_x", nrow = 4, ncol = 2) +
+  
+  ylab("Status: 1 = CM, 0 = UM") +
+  xlab("") +
+  
+  theme_bw() +
+  theme(axis.text = element_text(size = 20),
+        axis.title = element_text(size = 25),
+        legend.text = element_text(size = 15),
+        legend.title = element_text(size = 20),
+        strip.text = element_text(size = 20))
+
+```
+
+**Figure S2.** Plotted are the individual logistic regression curves of individual variables tested for their discriminatory power between UM and CM. On the y-axis, 1 represents CM while 0 represents UM. A steeper curve indicates higher discriminatory power
+
 
