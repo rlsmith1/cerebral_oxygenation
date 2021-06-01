@@ -162,18 +162,18 @@ df_clinical_res <- df_hbox %>%
   add_row(df_sex, .before = 2) %>% 
   
   dplyr::rename(" " = "variable",
-                "Healthy volunteers (HV)" = "HV",
-                "Uncomplicated malaria (UM) patients" = "UM",
-                "Cerebral malaria (CM) patients" = "CM")
+                "Healthy volunteers" = "HV",
+                "Uncomplicated malaria patients" = "UM",
+                "Cerebral malaria patients" = "CM")
 
   # remove lactate data for HV
-  df_clinical_res[11,]$`Healthy volunteers (HV)` <- "--"
+  df_clinical_res[11,]$`Healthy volunteers` <- "--"
   
   # create kable df
   df_clinical_res %>% knitr::kable(align = rep('c', 4))
 
 ```
-**Table 1.** A summary of subject information and hematological data. Group patient data presented as median (quartile 1, quartile 3). Note: Sex not recorded for 3 CM patients; Lactate data removed for HV due to inconsistent data.
+**Table 1.** A summary of subject information and hematological data. Group patient data presented as median (quartile 1, quartile 3). Note: Sex not recorded for 3 CM patients; Lactate data removed for healthy volunteers due to inconsistent data.
 
 ### Figure 1: Visual summary of NIRS variables
 
@@ -262,16 +262,15 @@ df_hbox_voi_long %>% dplyr::filter(variable %in% c("Oxy Hb α", "Deoxy Hb α", "
 
 **Figure 2** Shown are the α values associated with variables measured by the Oxiplex, plotted by patient status. Note: One outlier was removed from Deoxy Hb α (3.52).
 
-### Figure 3: Logistic regression on CM vs UM
+### Figure 3: Logistic regression model on CM vs UM
 
 #### A. PCA
-
 ```{r fig3a}
-# remove healthy volunteers, Oxy Hb, and Deoxy Hb from analysis
-df_hbox_log_voi <- df_hbox_voi %>% 
-  dplyr::filter(Status != "HV") %>% 
-  dplyr::select(-(2:5))
-
+# include variables of interest (THC, THC alpha, and hematocrit), remove healthy volunteers from analysis
+df_hbox_log_voi <- df_hbox_impute %>% 
+  dplyr::select(c(2,4:5,19:22)) %>% 
+  dplyr::filter(Status != "HV")
+  
 # convert tibble to df
 df_hbox_voi_df <- df_hbox_log_voi %>% 
   dplyr::select(-Status) %>% 
@@ -326,17 +325,17 @@ df_pnts <- my_pca$x %>% as_tibble() %>% mutate(group = groups)
 
 ```{r fig3b_prep, eval = FALSE}
 
-# convert to 0s and 1s
-df_hbox_voi_01 <- df_hbox_log_voi %>% mutate(Status = ifelse(Status == "CM", 1, 0) %>% as.factor())
-
-# select only significant variables
-df_hbox_model <- df_hbox_voi_01 %>% 
-  dplyr::select(c(Status, THCα)) %>% 
-  mutate(`1/10 * THCα` = THCα/10) %>% 
-  dplyr::select(-THCα)
+# select THC, THC alpha, and hematocrit
+  df_hbox_model <- df_hbox_impute %>% 
+    dplyr::select(c(2,4:5,19:22)) %>% 
+    mutate(`1/10 * THCα` = THCα/10, `1/10 * THC` = THC/10) %>% 
+    dplyr::select(-c(THCα, THC)) %>% 
+    mutate(Status = as.factor(ifelse(Status == "CM", 1, 0))) %>% 
+    
+    dplyr::select(-c(`Cerebral O2 sat`, `Cerebral O2 sat α`, `Lactate (mmol/L)`))
 
 # resample
-set.seed(123)
+set.seed(234)
 hbox_boot <- bootstraps(df_hbox_model, times = 1000)
 
 # recipe
@@ -369,7 +368,7 @@ hbox_final <- hbox_wf %>%
   fit(df_hbox_model) %>%
   pull_workflow_fit()
 
-# save objects so model doesn't rerun 
+# save objects so model doesn't rerun every time we knit
 save(glm_res, hbox_final, file = "glm_model.Rdata")
 
 ```   
@@ -401,7 +400,7 @@ final_res_conf_mat %>%
 
 ```
 
-**Figure 3** Logistic regression model discriminating CM vs UM patients using only THCα as the predictor. **(A)** PCA of patients with CM and UM as determined by NIRS variables. Color indicates patient status, ellipses show median and 95% confidence interval on the cluster. **(B)** Confusion matrix representing the results of the logistic regression model averaged across 1000 bootstrap resamples. Percent occurrence indicates percentage times that the event (shown by the x- and y-axes) occurred.
+**Figure 3.** Logistic regression model discriminating CM vs UM patients using THC, THCα, and hematocrit as the regressors **(A)** PCA of patients with CM and UM as determined by NIRS variables. Color indicates patient status, ellipses show median and 95% confidence interval on the cluster. **(B)** Confusion matrix representing the results of the logistic regression model averaged across 1000 bootstrap resamples. Percent occurrence indicates percentage times that the event (shown by the x- and y-axes) occurred.
 
 ### Table 2. Logistic regression model evaluation
 
@@ -437,10 +436,10 @@ hbox_final %>%
   as.data.frame() %>%
   knitr::kable(align = rep('c', 5))
 
-
 ```
 
 **Table 2.** Evaluation of the best logistic regression model select from 1000.
+
 
 ### Supplementary figure 1: Spearman correlations of NIRS variables 
 ```{r fig_s1, fig.show = "hold", out.width = "50%", fig.height = 12, fig.width = 15}

@@ -339,7 +339,7 @@
     mutate(p.value = as.numeric(p.value)) %>% 
     mutate(p.value = scientific(p.value, digits = 3)) %>% 
     dplyr::rename("Term" = "term", "Coefficient" = "estimate", "Standard error" = "std.error", 
-                  "Statistic" = "statistic", "p-value" = "p.value") # THC ns
+                  "Statistic" = "statistic", "p-value" = "p.value") 
   
   
   
