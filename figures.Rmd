@@ -441,6 +441,25 @@ hbox_final %>%
 **Table 2.** Evaluation of the best logistic regression model select from 1000.
 
 
+### Figure 4: Relationships among THC, THC alpha, and hematocrit
+```{r fig4}
+
+df_hbox_impute %>% filter(Status != "HV") %>% 
+  
+  ggplot(aes(x = THCα, y = `Hematocrit (%)`)) +
+  geom_point(aes(color = Status, size = THC), alpha = 0.7) +
+  labs(size = 'THC (μM)') +
+  
+  theme_bw() +
+  theme(axis.text = element_text(size = 20),
+        axis.title = element_text(size = 25),
+        legend.text = element_text(size = 15),
+        legend.title = element_text(size = 20))
+
+```
+
+**Figure 4.** 
+
 ### Supplementary figure 1: Spearman correlations of NIRS variables 
 ```{r fig_s1, fig.show = "hold", out.width = "50%", fig.height = 12, fig.width = 15}
 
