@@ -720,9 +720,49 @@
   # save filtered signal
   save(df_thc_filt_pass, file = "filtered_signals.Rdata")
 
+  load("filtered_signals.Rdata")
+  
+
   
   
+
+# FFT ---------------------------------------------------------------------
+
+
+  f_plot_fft <- function(df, num) {
+    
+    # compute fft
+    
+    fft <- df %>% filter(number == num) %>% .$roll_mean %>% fft() 
+    
+    # plot power spectra
+    
+    freq <- 500  #sample frequency in Hz 
+    duration <- df %>% filter(number == num) %>% nrow()/freq # length of signal in seconds
+    amo <- Mod(fft)
+    freqvec <- 1:length(amo)
+    
+    freqvec <- freqvec/duration 
+    df <- tibble(freq = freqvec, power = amo)
+    df <- df[(1:as.integer(0.5*freq*duration)),]
+    
+    ggplot(df[3:150,], aes(x = freq, y = power)) + 
+      geom_line(stat = "identity") +
+      geom_vline(xintercept = 0.07, lty = 2, color = "red", alpha = 0.5) +
+      geom_vline(xintercept = 0.1, lty = 2, color = "red", alpha = 0.5) +
+      
+      scale_x_continuous(breaks = seq(0, 1.5, 0.1)) +
+      theme_bw() +
+      
+      theme(axis.text.x = element_text(angle = 45, hjust = 0.9))
+
+  }
   
+ f_plot_fft(df_thc_filt_pass, 1)   
+    
+  
+  
+
 # Detrended fluctuation analysis ------------------------------------------
 
   
