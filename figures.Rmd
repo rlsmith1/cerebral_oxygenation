@@ -68,8 +68,8 @@ df_hbox_trim <- df_hbox %>%
                 
                 "Deoxy Hb" = "cerebral.hbdeox", "Deoxy Hb α" = "cerebral.hbdeox.alpha", 
                 "Oxy Hb" = "cerebral.hbox", "Oxy Hb α" = "cerebral.hbox.alpha",  
-                "Cerebral O2 sat" = "cerebral.sat", "Cerebral O2 sat α" = "cerebral.sat.alpha", 
-                "THC" = "cerebral.thc", "THCα" = "cerebral.thc.alpha") 
+                "HbO2%" = "cerebral.sat", "HbO2% α" = "cerebral.sat.alpha", 
+                "[HbT]" = "cerebral.thc", "[HbT]α" = "cerebral.thc.alpha") 
 
 # Remove patients labeled as "UM" that instead meet the criteria for severe malaria
 
@@ -180,19 +180,19 @@ df_clinical_res <- df_hbox %>%
 ```{r fig1}
 
 df_hbox_voi <- df_hbox_impute %>% 
-  dplyr::select(c(Status, `Oxy Hb`, `Oxy Hb α`, `Deoxy Hb`, `Deoxy Hb α`, `Cerebral O2 sat`, `Cerebral O2 sat α`, THC, `THCα`)) %>% 
+  dplyr::select(c(Status, `Oxy Hb`, `Oxy Hb α`, `Deoxy Hb`, `Deoxy Hb α`, `HbO2%`, `HbO2% α`, `[HbT]`, `[HbT]α`)) %>% 
   dplyr::filter(`Deoxy Hb α` < 3)
 
 df_hbox_voi_long <- df_hbox_voi %>% 
   pivot_longer(2:9, names_to = "variable", values_to = "value") %>%
   mutate(variable = factor(variable, levels = c("Oxy Hb", "Oxy Hb α",   
                                                  "Deoxy Hb", "Deoxy Hb α", 
-                                                "Cerebral O2 sat", "Cerebral O2 sat α", 
-                                                "THC", "THCα"))) 
+                                                "HbO2%", "HbO2% α", 
+                                                "[HbT]", "[HbT]α"))) 
 
 my_col <- c("CM" = "#00BFC4", "HV" = "#7CAE00", "UM" = "#F8766D")
   
-df_hbox_voi_long %>% dplyr::filter(variable %in% c("Oxy Hb", "Deoxy Hb", "Cerebral O2 sat", "THC")) %>%
+df_hbox_voi_long %>% dplyr::filter(variable %in% c("Oxy Hb", "Deoxy Hb", "HbO2%", "[HbT]")) %>%
   
   ggplot(aes(x = Status, y = value)) +
   geom_violin(aes(color = Status)) +
@@ -213,60 +213,75 @@ df_hbox_voi_long %>% dplyr::filter(variable %in% c("Oxy Hb", "Deoxy Hb", "Cerebr
 
 ```{r fig1.pvals, eval = FALSE}
 
-# THC
-kruskal.test(THC ~ Status, data = df_hbox_voi)
-dunnTest(THC ~ Status, data = df_hbox_voi, method = "bh")
+# [HbT]
+kruskal.test(`[HbT]` ~ Status, data = df_hbox_voi)
+dunnTest(`[HbT]` ~ Status, data = df_hbox_voi, method = "bh")
 
-# Cerebral O2 sat
-kruskal.test(`Cerebral O2 sat` ~ Status, data = df_hbox_voi)
+# HbO2%
+kruskal.test(`HbO2%` ~ Status, data = df_hbox_voi)
 
 ```
 
-**Figure 1.** Shown are the variables measured by Oxiplex, plotted by patient status THC levels were different between all three groups (Kruskal-Wallis adjusted p-value = 3.25x10^-6^; Dunn Test post-hoc adjusted p-values: CM vs HV = 1.66x10^-6^, CM vs UM = .032, HV vs UM = .033). Levels of cerebral O~2~ saturation did not differ among groups (Kruskal-Wallis adjusted p-value = .07). 
+**Figure 1.** Shown are the variables measured by Oxiplex, plotted by patient status [HbT] levels were different between all three groups (Kruskal-Wallis adjusted p-value = 3.25x10^-6^; Dunn Test post-hoc adjusted p-values: CM vs HV = 1.66x10^-6^, CM vs UM = .032, HV vs UM = .033). Levels of cerebral O~2~ saturation did not differ among groups (Kruskal-Wallis adjusted p-value = .07). 
 
 ### Figure 2: Visual summary of α values associated with NIRS variables
 
 ```{r fig2}
 
 df_hbox_voi <- df_hbox_impute %>% 
-  dplyr::select(c(Status, `Oxy Hb`, `Oxy Hb α`, `Deoxy Hb`, `Deoxy Hb α`, `Cerebral O2 sat`, `Cerebral O2 sat α`, THC, `THCα`)) %>% 
+  dplyr::select(c(Status, `Oxy Hb`, `Oxy Hb α`, `Deoxy Hb`, `Deoxy Hb α`, `HbO2%`, `HbO2% α`, `[HbT]`, `[HbT]α`)) %>% 
   dplyr::filter(`Deoxy Hb α` < 3)
 
 df_hbox_voi_long <- df_hbox_voi %>% 
   pivot_longer(2:9, names_to = "variable", values_to = "value") %>%
   mutate(variable = factor(variable, levels = c("Oxy Hb", "Oxy Hb α",   
                                                  "Deoxy Hb", "Deoxy Hb α", 
-                                                "Cerebral O2 sat", "Cerebral O2 sat α", 
-                                                "THC", "THCα"))) 
+                                                "HbO2%", "HbO2% α", 
+                                                "[HbT]", "[HbT]α"))) 
 
 my_col <- c("CM" = "#00BFC4", "HV" = "#7CAE00", "UM" = "#F8766D")
   
-df_hbox_voi_long %>% dplyr::filter(variable %in% c("Oxy Hb α", "Deoxy Hb α", "Cerebral O2 sat α", "THCα")) %>% 
+df_hbox_voi_long %>% dplyr::filter(variable %in% c("Oxy Hb α", "Deoxy Hb α", "HbO2% α", "[HbT]α")) %>% 
   
   ggplot(aes(x = Status, y = value)) +
   geom_violin(aes(color = Status)) +
   geom_jitter(position = position_jitter(0.2), shape = 1) +
   stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
+  
+  geom_hline(yintercept = 0.4, alpha = 0.4, lty = 2) +
+  geom_hline(yintercept = 0.6, alpha = 0.4, lty = 2) +
+  geom_hline(yintercept = 1.0, alpha = 0.4, lty = 2) +
+  geom_hline(yintercept = 1.5, alpha = 0.4, lty = 2) +
+  
   facet_wrap(~variable, scales = "free_y", nrow = 2, ncol = 2) +
   
+  ylim(0, 1.5) +
   scale_color_manual(values = my_col) +
   theme_bw() +
-  theme(legend.position = "none")  +
   
   theme(strip.text = element_text(size = 15),
         axis.title = element_text(size = 15),
         axis.title.y = element_blank(),
-        axis.text = element_text(size = 15))
+        axis.text = element_text(size = 15),
+        legend.position = "none")
 
 ```
 
-**Figure 2** Shown are the α values associated with variables measured by the Oxiplex, plotted by patient status. Note: One outlier was removed from Deoxy Hb α (3.52).
+```{r fig2.pvals, eval = FALSE}
+
+# [HbT]α
+kruskal.test(`[HbT]α` ~ Status, data = df_hbox_voi)
+dunnTest(`[HbT]α` ~ Status, data = df_hbox_voi, method = "bh")
+
+```
+
+**Figure 2** Shown are the alpha values associated with variables measured by the Oxiplex, plotted by patient status. Note: One outlier was removed from Deoxy Hb α (3.52).
 
 ### Figure 3: Logistic regression model on CM vs UM
 
 #### A. PCA
 ```{r fig3a}
-# include variables of interest (THC, THC alpha, and hematocrit), remove healthy volunteers from analysis
+# include variables of interest ([HbT], [HbT] alpha, and hematocrit), remove healthy volunteers from analysis
 df_hbox_log_voi <- df_hbox_impute %>% 
   dplyr::select(c(2,4:5,19:22)) %>% 
   dplyr::filter(Status != "HV")
@@ -325,14 +340,14 @@ df_pnts <- my_pca$x %>% as_tibble() %>% mutate(group = groups)
 
 ```{r fig3b_prep, eval = FALSE}
 
-# select THC, THC alpha, and hematocrit
+# select [HbT], [HbT] alpha, and hematocrit
   df_hbox_model <- df_hbox_impute %>% 
     dplyr::select(c(2,4:5,19:22)) %>% 
-    mutate(`1/10 * THCα` = THCα/10, `1/10 * THC` = THC/10) %>% 
-    dplyr::select(-c(THCα, THC)) %>% 
+    mutate(`1/10 * [HbT]α` = `[HbT]α`/10, `[HbT] (nM)` = `[HbT]`/1000) %>% 
+    dplyr::select(-c(`[HbT]α`, `[HbT]`)) %>% 
     mutate(Status = as.factor(ifelse(Status == "CM", 1, 0))) %>% 
     
-    dplyr::select(-c(`Cerebral O2 sat`, `Cerebral O2 sat α`, `Lactate (mmol/L)`))
+    dplyr::select(-c(`HbO2%`, `HbO2% α`, `Lactate (mmol/L)`))
 
 # resample
 set.seed(234)
@@ -400,7 +415,7 @@ final_res_conf_mat %>%
 
 ```
 
-**Figure 3.** Logistic regression model discriminating CM vs UM patients using THC, THCα, and hematocrit as the regressors **(A)** PCA of patients with CM and UM as determined by NIRS variables. Color indicates patient status, ellipses show median and 95% confidence interval on the cluster. **(B)** Confusion matrix representing the results of the logistic regression model averaged across 1000 bootstrap resamples. Percent occurrence indicates percentage times that the event (shown by the x- and y-axes) occurred.
+**Figure 3.** Logistic regression model discriminating CM vs UM patients using cerebral tissue hemoglobin concentration, cerebral tissue hemoglobin concentration alpha, and hematocrit as the regressors **(A)** PCA of patients with CM and UM as determined by NIRS variables. Color indicates patient status, ellipses show median and 95% confidence interval on the cluster. **(B)** Confusion matrix representing the results of the logistic regression model averaged across 1000 bootstrap resamples. Percent occurrence indicates percentage times that the event (shown by the x- and y-axes) occurred.
 
 ### Table 2. Logistic regression model evaluation
 
@@ -425,12 +440,12 @@ collect_metrics(glm_res) %>%
 ```{r table2b}
 
 hbox_final %>% 
-  tidy() %>% 
+  tidy(exponentiate = TRUE) %>% 
   mutate(p.value = as.character(p.value)) %>% 
   mutate_if(is.numeric, round, 2) %>% 
   mutate(p.value = as.numeric(p.value)) %>% 
   mutate(p.value = scientific(p.value, digits = 3)) %>% 
-  dplyr::rename("Term" = "term", "Coefficient" = "estimate", "Standard error" = "std.error", 
+  dplyr::rename("Term" = "term", "Odds ratio" = "estimate", "Standard error" = "std.error", 
                 "Statistic" = "statistic", "p-value" = "p.value") %>% 
   
   as.data.frame() %>%
@@ -441,15 +456,16 @@ hbox_final %>%
 **Table 2.** Evaluation of the best logistic regression model select from 1000.
 
 
-### Figure 4: Relationships among THC, THC alpha, and hematocrit
+### Figure 4: Relationships among [HbT], [HbT] alpha, and hematocrit
 ```{r fig4}
 
 df_hbox_impute %>% filter(Status != "HV") %>% 
   
-  ggplot(aes(x = THCα, y = `Hematocrit (%)`)) +
-  geom_point(aes(color = Status, size = THC), alpha = 0.7) +
-  labs(size = 'THC (μM)') +
+  ggplot(aes(x = `[HbT]`, y = `Hematocrit (%)`)) +
+  geom_point(aes(color = Status, size = `[HbT]α`), alpha = 0.7) +
   
+  xlab("[HbT] (μM)") +
+
   theme_bw() +
   theme(axis.text = element_text(size = 20),
         axis.title = element_text(size = 25),
@@ -460,7 +476,7 @@ df_hbox_impute %>% filter(Status != "HV") %>%
 
 **Figure 4.** 
 
-### Supplementary figure 1: Spearman correlations of NIRS variables 
+### Supplementary figure 1: Spearman correlations of potential regressors
 ```{r fig_s1, fig.show = "hold", out.width = "50%", fig.height = 12, fig.width = 15}
 
 # calculate spearman correlations in each group
@@ -474,11 +490,16 @@ f_calc_cor <- function(df, status) {
   
 }
 
-m_cor_hv <- df_hbox_voi %>% f_calc_cor(status = "HV")
+# create df of potential regressors
+df_hbox_reg <- df_hbox_impute %>% 
+  dplyr::select(c(Status, `Hematocrit (%)`, `Lactate (mmol/L)`, `Oxy Hb`, `Oxy Hb α`, `Deoxy Hb`, `Deoxy Hb α`, `HbO2%`, `HbO2% α`, `[HbT]`, `[HbT]α`)) %>% 
+  dplyr::filter(`Deoxy Hb α` < 3)
 
-m_cor_um <- df_hbox_voi %>% f_calc_cor(status = "UM")
+m_cor_hv <- df_hbox_reg %>% f_calc_cor(status = "HV")
 
-m_cor_cm <- df_hbox_voi %>% f_calc_cor(status = "CM")
+m_cor_um <- df_hbox_reg %>% f_calc_cor(status = "UM")
+
+m_cor_cm <- df_hbox_reg %>% f_calc_cor(status = "CM")
 
 # correlation matrix
 
@@ -487,7 +508,7 @@ f_plot_cor <- function(mat) {
   
   melt(mat) %>% 
     
-    mutate_if(is.factor, factor, levels = c("Oxy Hb", "Deoxy Hb", "Cerebral O2 sat", "THC", "Oxy Hb α", "Deoxy Hb α", "Cerebral O2 sat α", "THCα")) %>% 
+    mutate_if(is.factor, factor, levels = c("Lactate (mmol/L)", "Hematocrit (%)", "Oxy Hb", "Deoxy Hb", "HbO2%", "[HbT]", "Oxy Hb α", "Deoxy Hb α", "HbO2% α", "[HbT]α")) %>% 
     
     ggplot(aes(x = X1, y = X2, fill = value, label = round(value, 2))) + 
     geom_tile() +
@@ -511,11 +532,11 @@ f_plot_cor <- function(mat) {
   p_leg <- m_cor_hv %>% f_plot_cor() %>% get_legend()
   
   # create plots
-  m_cor_hv %>% f_plot_cor() + ggtitle("HV variable correlations") + theme(legend.position = "none")
+  m_cor_hv %>% f_plot_cor() + ggtitle("Healthy volunteers") + theme(legend.position = "none")
   
-  m_cor_um %>% f_plot_cor() + ggtitle("UM variable correlations") + theme(legend.position = "none")
+  m_cor_um %>% f_plot_cor() + ggtitle("Uncomplicated malaria patients") + theme(legend.position = "none")
   
-  m_cor_cm %>% f_plot_cor() + ggtitle("CM variable correlations") + theme(legend.position = "none")
+  m_cor_cm %>% f_plot_cor() + ggtitle("Cerebral malaria patients") + theme(legend.position = "none")
   
   as_ggplot(p_leg)
 
@@ -523,15 +544,21 @@ f_plot_cor <- function(mat) {
 
 **Figure S1.** Shown are the spearman correlations among variables measured by Oxiplex and their associated alpha values. Red indicates a positive correlation; blue indicates a negative correlation.
 
-### Supplementary figure 2: Logistic regression curves of NIRS variables
+### Supplementary figure 2: Logistic regression curves of potential regressors
 ```{r fig_s2, fig.height = 12}
 
-df_hbox_voi_long %>% mutate(Status = as.numeric(ifelse(Status == "CM", 1, 0))) %>% 
+# pivot longer and change factor levels
+df_hbox_reg_long <- df_hbox_reg %>% 
+  pivot_longer(2:11, names_to = "variable", values_to = "value") %>% 
+  mutate(variable = factor(variable, levels = c("Lactate (mmol/L)", "Hematocrit (%)", "Oxy Hb", "Oxy Hb α", "Deoxy Hb", "Deoxy Hb α", "HbO2%", "HbO2% α" ,"[HbT]", "[HbT]α")))
+
+# plot as individual regression curves
+df_hbox_reg_long %>% mutate(Status = as.numeric(ifelse(Status == "CM", 1, 0))) %>% 
   
   ggplot(aes(x = value, y = Status)) +
   geom_point() +
   geom_smooth(method = "glm", method.args = list(family = "binomial")) +
-  facet_wrap(~variable, scales = "free_x", nrow = 4, ncol = 2) +
+  facet_wrap(~variable, scales = "free_x", nrow = 5, ncol = 2) +
   
   ylab("Status: 1 = CM, 0 = UM") +
   xlab("") +
