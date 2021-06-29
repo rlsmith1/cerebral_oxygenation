@@ -5,6 +5,13 @@ date: "`r Sys.Date()`"
 output: html_document
 ---
 
+<style type="text/css">
+  body{
+  font-family: Arial;
+  font-size: 12pt;
+}
+</style>
+
 ```{r setup, include = FALSE}
 
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, comment = "", fig.height = 8, fig.width = 10)
@@ -19,9 +26,12 @@ library(tidymodels)
 library(vip)
 library(scales)
 library(reshape)
-
+library(extrafont)
+library(grDevices)
 
 load("glm_model.Rdata")
+
+font_import()
 
 ```
 
@@ -66,8 +76,8 @@ df_hbox_trim <- df_hbox %>%
                 "Systolic BP" = "BP.Systolic", "Diastolic BP" = "BP.Diastolic", "O2 sat" = "O2.Sat", 
                 "Respiration rate" = "RR", "Heart rate" = "HR",
                 
-                "Deoxy Hb" = "cerebral.hbdeox", "Deoxy Hb α" = "cerebral.hbdeox.alpha", 
-                "Oxy Hb" = "cerebral.hbox", "Oxy Hb α" = "cerebral.hbox.alpha",  
+                "[Hb]" = "cerebral.hbdeox", "[Hb]α" = "cerebral.hbdeox.alpha", 
+                "[HbO2]" = "cerebral.hbox", "[HbO2]α" = "cerebral.hbox.alpha",  
                 "HbO2%" = "cerebral.sat", "HbO2% α" = "cerebral.sat.alpha", 
                 "[HbT]" = "cerebral.thc", "[HbT]α" = "cerebral.thc.alpha") 
 
@@ -180,19 +190,19 @@ df_clinical_res <- df_hbox %>%
 ```{r fig1}
 
 df_hbox_voi <- df_hbox_impute %>% 
-  dplyr::select(c(Status, `Oxy Hb`, `Oxy Hb α`, `Deoxy Hb`, `Deoxy Hb α`, `HbO2%`, `HbO2% α`, `[HbT]`, `[HbT]α`)) %>% 
-  dplyr::filter(`Deoxy Hb α` < 3)
+  dplyr::select(c(Status, `[HbO2]`, `[HbO2]α`, `[Hb]`, `[Hb]α`, `HbO2%`, `HbO2% α`, `[HbT]`, `[HbT]α`)) %>% 
+  dplyr::filter(`[Hb]α` < 3)
 
 df_hbox_voi_long <- df_hbox_voi %>% 
   pivot_longer(2:9, names_to = "variable", values_to = "value") %>%
-  mutate(variable = factor(variable, levels = c("Oxy Hb", "Oxy Hb α",   
-                                                 "Deoxy Hb", "Deoxy Hb α", 
+  mutate(variable = factor(variable, levels = c("[HbO2]", "[HbO2]α",   
+                                                 "[Hb]", "[Hb]α", 
                                                 "HbO2%", "HbO2% α", 
                                                 "[HbT]", "[HbT]α"))) 
 
 my_col <- c("CM" = "#00BFC4", "HV" = "#7CAE00", "UM" = "#F8766D")
   
-df_hbox_voi_long %>% dplyr::filter(variable %in% c("Oxy Hb", "Deoxy Hb", "HbO2%", "[HbT]")) %>%
+df_hbox_voi_long %>% dplyr::filter(variable %in% c("[HbO2]", "[Hb]", "HbO2%", "[HbT]")) %>%
   
   ggplot(aes(x = Status, y = value)) +
   geom_violin(aes(color = Status)) +
@@ -204,7 +214,8 @@ df_hbox_voi_long %>% dplyr::filter(variable %in% c("Oxy Hb", "Deoxy Hb", "HbO2%"
   theme_bw() +
   theme(legend.position = "none")  +
   
-  theme(strip.text = element_text(size = 15),
+  theme(text = element_text(family = "Arial"),
+        strip.text = element_text(size = 15),
         axis.title = element_text(size = 15),
         axis.title.y = element_blank(),
         axis.text = element_text(size = 15))
@@ -229,19 +240,19 @@ kruskal.test(`HbO2%` ~ Status, data = df_hbox_voi)
 ```{r fig2}
 
 df_hbox_voi <- df_hbox_impute %>% 
-  dplyr::select(c(Status, `Oxy Hb`, `Oxy Hb α`, `Deoxy Hb`, `Deoxy Hb α`, `HbO2%`, `HbO2% α`, `[HbT]`, `[HbT]α`)) %>% 
-  dplyr::filter(`Deoxy Hb α` < 3)
+  dplyr::select(c(Status, `[HbO2]`, `[HbO2]α`, `[Hb]`, `[Hb]α`, `HbO2%`, `HbO2% α`, `[HbT]`, `[HbT]α`)) %>% 
+  dplyr::filter(`[Hb]α` < 3)
 
 df_hbox_voi_long <- df_hbox_voi %>% 
   pivot_longer(2:9, names_to = "variable", values_to = "value") %>%
-  mutate(variable = factor(variable, levels = c("Oxy Hb", "Oxy Hb α",   
-                                                 "Deoxy Hb", "Deoxy Hb α", 
+  mutate(variable = factor(variable, levels = c("[HbO2]", "[HbO2]α",   
+                                                 "[Hb]", "[Hb]α", 
                                                 "HbO2%", "HbO2% α", 
                                                 "[HbT]", "[HbT]α"))) 
 
 my_col <- c("CM" = "#00BFC4", "HV" = "#7CAE00", "UM" = "#F8766D")
   
-df_hbox_voi_long %>% dplyr::filter(variable %in% c("Oxy Hb α", "Deoxy Hb α", "HbO2% α", "[HbT]α")) %>% 
+df_hbox_voi_long %>% dplyr::filter(variable %in% c("[HbO2]α", "[Hb]α", "HbO2% α", "[HbT]α")) %>% 
   
   ggplot(aes(x = Status, y = value)) +
   geom_violin(aes(color = Status)) +
@@ -259,7 +270,8 @@ df_hbox_voi_long %>% dplyr::filter(variable %in% c("Oxy Hb α", "Deoxy Hb α", "
   scale_color_manual(values = my_col) +
   theme_bw() +
   
-  theme(strip.text = element_text(size = 15),
+  theme(text = element_text(family = "Arial"),
+        strip.text = element_text(size = 15),
         axis.title = element_text(size = 15),
         axis.title.y = element_blank(),
         axis.text = element_text(size = 15),
@@ -329,7 +341,8 @@ df_pnts <- my_pca$x %>% as_tibble() %>% mutate(group = groups)
   ylab(paste0("PC2: ", round(pca_eig_val$variance.percent[2], 2), "% of variance")) +
 
   theme_bw() +
-  theme(axis.text = element_text(size = 20),
+  theme(text = element_text(family = "Arial"),
+        axis.text = element_text(size = 20),
         axis.title = element_text(size = 25),
         legend.text = element_text(size = 15),
         legend.title = element_text(size = 20))
@@ -408,7 +421,8 @@ final_res_conf_mat %>%
   scale_fill_gradient2(low = "#4575b4", high = "#d73027") +
   
   theme_bw() +
-  theme(axis.title = element_text(size = 25),
+  theme(text = element_text(family = "Arial"),
+        axis.title = element_text(size = 25),
         axis.text = element_text(size = 20),
         legend.title = element_text(size = 20),
         legend.text = element_text(size = 15))
@@ -467,7 +481,8 @@ df_hbox_impute %>% filter(Status != "HV") %>%
   xlab("[HbT] (μM)") +
 
   theme_bw() +
-  theme(axis.text = element_text(size = 20),
+  theme(text = element_text(family = "Arial"),
+        axis.text = element_text(size = 20),
         axis.title = element_text(size = 25),
         legend.text = element_text(size = 15),
         legend.title = element_text(size = 20))
@@ -492,8 +507,8 @@ f_calc_cor <- function(df, status) {
 
 # create df of potential regressors
 df_hbox_reg <- df_hbox_impute %>% 
-  dplyr::select(c(Status, `Hematocrit (%)`, `Lactate (mmol/L)`, `Oxy Hb`, `Oxy Hb α`, `Deoxy Hb`, `Deoxy Hb α`, `HbO2%`, `HbO2% α`, `[HbT]`, `[HbT]α`)) %>% 
-  dplyr::filter(`Deoxy Hb α` < 3)
+  dplyr::select(c(Status, `Hematocrit (%)`, `Lactate (mmol/L)`, `[HbO2]`, `[HbO2]α`, `[Hb]`, `[Hb]α`, `HbO2%`, `HbO2% α`, `[HbT]`, `[HbT]α`)) %>% 
+  dplyr::filter(`[Hb]α` < 3)
 
 m_cor_hv <- df_hbox_reg %>% f_calc_cor(status = "HV")
 
@@ -508,7 +523,7 @@ f_plot_cor <- function(mat) {
   
   melt(mat) %>% 
     
-    mutate_if(is.factor, factor, levels = c("Lactate (mmol/L)", "Hematocrit (%)", "Oxy Hb", "Deoxy Hb", "HbO2%", "[HbT]", "Oxy Hb α", "Deoxy Hb α", "HbO2% α", "[HbT]α")) %>% 
+    mutate_if(is.factor, factor, levels = c("Lactate (mmol/L)", "Hematocrit (%)", "[HbO2]", "[Hb]", "HbO2%", "[HbT]", "[HbO2]α", "[Hb]α", "HbO2% α", "[HbT]α")) %>% 
     
     ggplot(aes(x = X1, y = X2, fill = value, label = round(value, 2))) + 
     geom_tile() +
@@ -518,7 +533,8 @@ f_plot_cor <- function(mat) {
     xlab("") +
     ylab("") +
     theme_bw() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 0.9),
+    theme(text = element_text(family = "Arial"),
+          axis.text.x = element_text(angle = 45, hjust = 0.9),
           axis.text = element_text(size = 35),
           legend.text = element_text(size = 40),
           legend.title = element_text(size = 50),
@@ -550,7 +566,7 @@ f_plot_cor <- function(mat) {
 # pivot longer and change factor levels
 df_hbox_reg_long <- df_hbox_reg %>% 
   pivot_longer(2:11, names_to = "variable", values_to = "value") %>% 
-  mutate(variable = factor(variable, levels = c("Lactate (mmol/L)", "Hematocrit (%)", "Oxy Hb", "Oxy Hb α", "Deoxy Hb", "Deoxy Hb α", "HbO2%", "HbO2% α" ,"[HbT]", "[HbT]α")))
+  mutate(variable = factor(variable, levels = c("Lactate (mmol/L)", "Hematocrit (%)", "[HbO2]", "[HbO2]α", "[Hb]", "[Hb]α", "HbO2%", "HbO2% α" ,"[HbT]", "[HbT]α")))
 
 # plot as individual regression curves
 df_hbox_reg_long %>% mutate(Status = as.numeric(ifelse(Status == "CM", 1, 0))) %>% 
@@ -564,7 +580,8 @@ df_hbox_reg_long %>% mutate(Status = as.numeric(ifelse(Status == "CM", 1, 0))) %
   xlab("") +
   
   theme_bw() +
-  theme(axis.text = element_text(size = 20),
+  theme(text = element_text(family = "Arial"),
+        axis.text = element_text(size = 20),
         axis.title = element_text(size = 25),
         legend.text = element_text(size = 15),
         legend.title = element_text(size = 20),
