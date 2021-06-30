@@ -53,7 +53,7 @@
   # smooth data with 10s moving average
   df_thc <- df_thc %>% 
     group_by(number) %>% 
-    mutate(roll_mean = zoo::rollmean(THC, k = 1000, fill = NA)) %>% 
+    mutate(roll_mean = zoo::rollmean(THC, k = 50, fill = NA)) %>% 
     ungroup()
   
 
@@ -643,7 +643,7 @@
     theme(legend.position = "none") 
     
   
-  # THC sd
+  # THC sd --> not included in paper
   df_THCsd <- df_thc_filt %>% 
     filter(!is.na(roll_mean)) %>% 
     group_by(number, Status) %>% 
@@ -665,10 +665,13 @@
 # filter each signal to below 0.1 Hz (physiological oscillations, including hemodynamics/cerebral autoregulation)
   
   library(seewave)
+  library(dplR)
+  library(data.table)
+  # df_thc_filt <- df_thc_filt_pass[,1:5] # uncomment to recreate df_thc_filt
 
   l_thc_filt_pass <- unique(df_thc_filt$number) %>% 
     purrr::map(~dplyr::filter(df_thc_filt, number == .x, !is.na(roll_mean))) %>% 
-    purrr::map(~mutate(.x, band_pass = pass.filt(.x$roll_mean, W = c(0.07, .3), type = "pass", method = "Chebyshev", n = 4)))
+    purrr::map(~mutate(.x, band_pass = pass.filt(.x$roll_mean, W = c(0.01, .1), type = "pass", method = "Chebyshev", n = 4)))
     
   df_thc_filt_pass <- rbindlist(l_thc_filt_pass) %>% as_tibble()
   
@@ -691,7 +694,6 @@
   load("filtered_signals.Rdata")
   
 
-  
   
 
 # FFT ---------------------------------------------------------------------
@@ -716,7 +718,7 @@
     
     ggplot(df[3:150,], aes(x = freq, y = power)) + 
       geom_line(stat = "identity") +
-      geom_vline(xintercept = 0.07, lty = 2, color = "red", alpha = 0.5) +
+      geom_vline(xintercept = 0.01, lty = 2, color = "red", alpha = 0.5) +
       geom_vline(xintercept = 0.1, lty = 2, color = "red", alpha = 0.5) +
       
       scale_x_continuous(breaks = seq(0, 1.5, 0.1)) +
@@ -726,7 +728,7 @@
 
   }
   
- f_plot_fft(df_thc_filt_pass, 1)   
+ f_plot_fft(df_thc_filt_pass, 32)   
     
   
   
