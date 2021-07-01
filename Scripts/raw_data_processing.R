@@ -663,6 +663,7 @@
 
   
 # filter each signal to below 0.1 Hz (physiological oscillations, including hemodynamics/cerebral autoregulation)
+  # & above 0.01 (anything below is head displacements and motion noise)
   
   library(seewave)
   library(dplR)
@@ -675,7 +676,7 @@
     
   df_thc_filt_pass <- rbindlist(l_thc_filt_pass) %>% as_tibble()
   
-  # recalculate sd
+  # recalculate sd (not for use in paper)
   df_thc_filt_pass %>% 
     dplyr::filter(!is.na(roll_mean)) %>% 
     group_by(number, Status) %>% 
@@ -688,10 +689,6 @@
     theme_bw() +
     theme(legend.position = "none") 
   
-  # save filtered signal
-  save(df_thc_filt_pass, file = "filtered_signals.Rdata")
-
-  load("filtered_signals.Rdata")
   
 
   
@@ -740,3 +737,27 @@
   
   
   
+ 
+
+# r -----------------------------------------------------------------------
+
+ # add milliseconds in to Time
+ df_thc_filt_pass <- df_thc_filt_pass %>% 
+   group_by(number, Time) %>% 
+   left_join(count(.)) %>% 
+   mutate(Time = ifelse(n == 49, Time + 0.02*row_number(), Time + 0.02*(row_number() - 1))) %>% 
+   dplyr::select(-n)
+ 
+ # 1 second rolling mean?
+ df_thc_filt_pass <- df_thc_filt_pass %>% group_by(number) %>% 
+   mutate(roll_mean = zoo::rollmean(THC, k = 50, fill = NA)) %>% 
+   ungroup()
+ 
+ # save filtered signal
+ save(df_thc_filt_pass, file = "filtered_signals.Rdata")
+ 
+ load("filtered_signals.Rdata")
+ 
+ 
+ df_thc_filt_pass <-  df_thc_filt_pass %>% select(-n)
+ 
