@@ -50,7 +50,7 @@
   df_thc$Status[df_thc$Status == "HC"] <- "HV"
   df_thc <- df_thc %>% dplyr::filter(Status != "-0") # unclear what group this patient was in
   
-  # smooth data with 10s moving average
+  # smooth data with 1s moving average
   df_thc <- df_thc %>% 
     group_by(number) %>% 
     mutate(roll_mean = zoo::rollmean(THC, k = 50, fill = NA)) %>% 
@@ -659,39 +659,26 @@
   
   
 
-# band pass filter ---------------------------------------------------------
+# savitzy-golay signal smoothing  ---------------------------------------------------------
 
   
-# filter each signal to below 0.1 Hz (physiological oscillations, including hemodynamics/cerebral autoregulation)
-  # & above 0.01 (anything below is head displacements and motion noise)
+  # 4th order savitzy-golay filter
+  library(signal)
   
-  library(seewave)
-  library(dplR)
-  library(data.table)
-  # df_thc_filt <- df_thc_filt_pass[,1:5] # uncomment to recreate df_thc_filt
-
-  l_thc_filt_pass <- unique(df_thc_filt$number) %>% 
-    purrr::map(~dplyr::filter(df_thc_filt, number == .x, !is.na(roll_mean))) %>% 
-    purrr::map(~mutate(.x, band_pass = pass.filt(.x$roll_mean, W = c(0.01, .1), type = "pass", method = "Chebyshev", n = 4)))
-    
-  df_thc_filt_pass <- rbindlist(l_thc_filt_pass) %>% as_tibble()
+  df_thc_filt <- df_thc_filt %>% 
+    dplyr::select(-roll_mean) %>% 
+    group_by(number) %>% 
+    mutate(sg_filt = sgolayfilt(THC, p = 3)) %>% 
+    ungroup()
   
-  # recalculate sd (not for use in paper)
-  df_thc_filt_pass %>% 
-    dplyr::filter(!is.na(roll_mean)) %>% 
-    group_by(number, Status) %>% 
-    summarise(THC_sd = sd(band_pass)) %>%  
-    
-    ggplot(aes(x = Status, y = THC_sd)) +
-    geom_violin(aes(color = Status)) +
-    geom_jitter(position = position_jitter(0.2), shape = 1) +
-    stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
-    theme_bw() +
-    theme(legend.position = "none") 
+  # plot
+  df_thc_filt %>% filter(number == 10 & Time < 1500 & Time > 1490) %>% 
+    ggplot(aes(x = Time)) +
+    geom_line(aes(y = THC)) +
+    geom_line(aes(y = sg_filt), color = "red")
   
   
 
-  
 
 # FFT ---------------------------------------------------------------------
 
@@ -700,11 +687,11 @@
     
     # compute fft
     
-    fft <- df %>% filter(number == num) %>% .$roll_mean %>% fft() 
+    fft <- df %>% filter(number == num) %>% .$sg_filt %>% fft() 
     
     # plot power spectra
     
-    freq <- 500  #sample frequency in Hz 
+    freq <- 50  #sample frequency in Hz 
     duration <- df %>% filter(number == num) %>% nrow()/freq # length of signal in seconds
     amo <- Mod(fft)
     freqvec <- 1:length(amo)
@@ -713,33 +700,57 @@
     df <- tibble(freq = freqvec, power = amo)
     df <- df[(1:as.integer(0.5*freq*duration)),]
     
-    ggplot(df[3:150,], aes(x = freq, y = power)) + 
+    df %>% filter(freq > 0.01 & freq < 1.5) %>% 
+      
+      ggplot(aes(x = freq, y = power)) + 
       geom_line(stat = "identity") +
       geom_vline(xintercept = 0.01, lty = 2, color = "red", alpha = 0.5) +
       geom_vline(xintercept = 0.1, lty = 2, color = "red", alpha = 0.5) +
       
-      scale_x_continuous(breaks = seq(0, 1.5, 0.1)) +
+      #scale_x_continuous(breaks = seq(0, 1.5, 0.1)) +
       theme_bw() +
       
       theme(axis.text.x = element_text(angle = 45, hjust = 0.9))
 
   }
   
- f_plot_fft(df_thc_filt_pass, 32)   
+ f_plot_fft(df_thc_filt_pass, 71)   
     
-  
-  
-
-
-
-  
-
-  
-  
-  
  
 
-# r -----------------------------------------------------------------------
+ 
+
+# band-pass filter --------------------------------------------------------
+
+ # filter each signal to below 0.1 Hz (physiological oscillations, including hemodynamics/cerebral autoregulation)
+ # & above 0.01 (anything below is head displacements and motion noise) **** to include or not to include????
+ 
+ library(seewave)
+ library(dplR)
+ library(data.table)
+ 
+ # df_thc_filt <- df_thc_filt_pass[,1:5] # uncomment to recreate df_thc_filt
+ 
+ l_thc_filt_pass <- unique(df_thc_filt$number) %>% 
+   purrr::map(~dplyr::filter(df_thc_filt, number == .x, !is.na(sg_filt))) %>% 
+   purrr::map(~mutate(.x, band_pass = pass.filt(.x$sg_filt, W = c(0.01, .1), type = "pass")))
+ 
+ df_thc_filt_pass <- rbindlist(l_thc_filt_pass) %>% as_tibble()
+ 
+ # plot
+ df_thc_filt_pass %>% filter(number == 10 & Time < 1500 & Time > 1490) %>% 
+   ggplot(aes(x = Time)) +
+   geom_line(aes(y = THC)) +
+   geom_line(aes(y = sg_filt), color = "red") +
+   geom_line(aes(y = band_pass), color = "blue")
+
+ 
+
+# Hilbert transformation --------------------------------------------------
+
+ 
+  
+# final signal processing -----------------------------------------------------------------------
 
  # add milliseconds in to Time
  df_thc_filt_pass <- df_thc_filt_pass %>% 
@@ -748,10 +759,6 @@
    mutate(Time = ifelse(n == 49, Time + 0.02*row_number(), Time + 0.02*(row_number() - 1))) %>% 
    dplyr::select(-n)
  
- # 1 second rolling mean?
- df_thc_filt_pass <- df_thc_filt_pass %>% group_by(number) %>% 
-   mutate(roll_mean = zoo::rollmean(THC, k = 50, fill = NA)) %>% 
-   ungroup()
  
  # save filtered signal
  save(df_thc_filt_pass, file = "filtered_signals.Rdata")
@@ -759,5 +766,5 @@
  load("filtered_signals.Rdata")
  
  
- df_thc_filt_pass <-  df_thc_filt_pass %>% select(-n)
+
  
