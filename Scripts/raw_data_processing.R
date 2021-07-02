@@ -733,7 +733,7 @@
  
  l_thc_filt_pass <- unique(df_thc_filt$number) %>% 
    purrr::map(~dplyr::filter(df_thc_filt, number == .x, !is.na(sg_filt))) %>% 
-   purrr::map(~mutate(.x, band_pass = pass.filt(.x$sg_filt, W = c(0.01, .1), type = "pass")))
+   purrr::map(~mutate(.x, band_pass = pass.filt(.x$sg_filt, W = c(0.01, 0.1), type = "pass")))
  
  df_thc_filt_pass <- rbindlist(l_thc_filt_pass) %>% as_tibble()
  
@@ -742,7 +742,8 @@
    ggplot(aes(x = Time)) +
    geom_line(aes(y = THC)) +
    geom_line(aes(y = sg_filt), color = "red") +
-   geom_line(aes(y = band_pass), color = "blue")
+   geom_line(aes(y = band_pass), color = "blue") +
+   theme_bw()
 
  
 
