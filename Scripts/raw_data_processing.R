@@ -98,7 +98,7 @@
   
 
 
-# remove blips ------------------------------------------------------------
+# remove blips (manual) ------------------------------------------------------------
 
 
 # remove signals that aren't at least 200s  
@@ -664,6 +664,8 @@
   
   # 4th order savitzy-golay filter
   library(signal)
+  # df_thc_filt <- df_thc_filt_pass[,1:5] # uncomment to recreate df_thc_filt
+  
   
   df_thc_filt <- df_thc_filt %>% 
     dplyr::select(-roll_mean) %>% 
@@ -680,77 +682,88 @@
   
 
 
+# high-pass signal filtering --------------------------------------------------------
+
+  # use a high-pass filter to remove anything below 0.01 Hz (associated with head displacements and motion noise) 
+  
+  
+  library(seewave)
+  library(dplR)
+  library(data.table)
+  
+  # filter out anything lower than 0.01 Hz (noise)
+  
+  l_thc_filt <- df_thc_filt %>% split(df_thc_filt$number)
+  sampling_rate <- 50
+  butter_filter <- butter(4, W = 0.01/(sampling_rate/2), type = "high")
+  l_thc_filt_pass <- 1:length(l_thc_filt) %>% purrr::map(~mutate(l_thc_filt[[.x]], high_pass = filtfilt(butter_filter, sg_filt)))
+  
+  df_thc_filt_pass <- rbindlist(l_thc_filt_pass) %>% as_tibble()
+  
+  
+  
+  
 # FFT ---------------------------------------------------------------------
 
+  
+## function to plot fast fourier transform of signal after high-pass filter (0.01 Hz cutoff)
+  # df = df_thc_filt_pass (NIRS signal + sg filter + high pass)
+  # num = patient number to plot
+  # zoom = look at overall FFT (FALSE) or freq range of interest (0-1.5 Hz; TRUE)
 
-  f_plot_fft <- function(df, num) {
+  
+  f_plot_fft <- function(df, num, zoom = TRUE) {
     
     # compute fft
     
-    fft <- df %>% filter(number == num) %>% .$sg_filt %>% fft() 
+    fft <- df %>% dplyr::filter(number == num) %>% .$high_pass %>% fft() 
     
-    # plot power spectra
+    # determine power spectra
     
     freq <- 50  #sample frequency in Hz 
-    duration <- df %>% filter(number == num) %>% nrow()/freq # length of signal in seconds
-    amo <- Mod(fft)
-    freqvec <- 1:length(amo)
+    duration <- df %>% dplyr::filter(number == num) %>% nrow()/freq # length of signal in seconds
+    amo <- Mod(fft) # frequency "amounts" (power)
+    freqvec <- 1:length(amo) # associated frequency
     
-    freqvec <- freqvec/duration 
-    df <- tibble(freq = freqvec, power = amo)
-    df <- df[(1:as.integer(0.5*freq*duration)),]
+    freqvec <- freqvec/duration # normalize to signal length to get frequency ranges
+    df <- tibble(freq = freqvec, power = amo) # create df assigning power to each frequency
+    df <- df[(1:as.integer(0.5*freq*duration)),] # select rows within Nyquist frequency
     
-    df %>% filter(freq > 0.01 & freq < 1.5) %>% 
+    # plot power spectra
+    p <- df %>% dplyr::filter(freq < ifelse(zoom == TRUE, 1.5, max(freq))) %>% 
       
       ggplot(aes(x = freq, y = power)) + 
       geom_line(stat = "identity") +
-      geom_vline(xintercept = 0.01, lty = 2, color = "red", alpha = 0.5) +
-      geom_vline(xintercept = 0.1, lty = 2, color = "red", alpha = 0.5) +
-      
-      #scale_x_continuous(breaks = seq(0, 1.5, 0.1)) +
+      geom_vline(xintercept = 0.01, lty = 2, color = "red") +
+
       theme_bw() +
       
       theme(axis.text.x = element_text(angle = 45, hjust = 0.9))
+    
+    ifelse(zoom == TRUE, p <- p + scale_x_continuous(breaks = seq(0, 1.5, 0.1)), p <- p)
+    
+    p
 
   }
   
- f_plot_fft(df_thc_filt_pass, 71)   
-    
- 
+  
+ f_plot_fft(df_thc_filt_pass, 1, zoom = TRUE)  
 
  
-
-# band-pass filter --------------------------------------------------------
-
- # filter each signal to below 0.1 Hz (physiological oscillations, including hemodynamics/cerebral autoregulation)
- # & above 0.01 (anything below is head displacements and motion noise) **** to include or not to include????
  
- library(seewave)
- library(dplR)
- library(data.table)
- 
- # df_thc_filt <- df_thc_filt_pass[,1:5] # uncomment to recreate df_thc_filt
- 
- l_thc_filt_pass <- unique(df_thc_filt$number) %>% 
-   purrr::map(~dplyr::filter(df_thc_filt, number == .x, !is.na(sg_filt))) %>% 
-   purrr::map(~mutate(.x, band_pass = pass.filt(.x$sg_filt, W = c(0.01, 0.1), type = "pass")))
- 
- df_thc_filt_pass <- rbindlist(l_thc_filt_pass) %>% as_tibble()
- 
- # plot
- df_thc_filt_pass %>% filter(number == 10 & Time < 1500 & Time > 1490) %>% 
+ # plot levels of signal processing
+ df_thc_filt_pass %>% dplyr::filter(number == 1 & Time > 1400 & Time < 1410) %>% 
    ggplot(aes(x = Time)) +
    geom_line(aes(y = THC)) +
    geom_line(aes(y = sg_filt), color = "red") +
-   geom_line(aes(y = band_pass), color = "blue") +
+   geom_line(aes(y = high_pass), color = "blue") +
    theme_bw()
-
+ 
+ 
+ 
+ 
  
 
-# Hilbert transformation --------------------------------------------------
-
- 
-  
 # final signal processing -----------------------------------------------------------------------
 
  # add milliseconds in to Time
