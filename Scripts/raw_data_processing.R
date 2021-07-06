@@ -28,33 +28,33 @@
   library(zoo)
   
   # format to just THC in workable form
-  l_thc <- 1:length(l_raw_data) %>% 
+  l_raw_data <- 1:length(l_raw_data) %>% 
     
     purrr::map(~mutate(l_raw_data[[.x]], Status = l_names[[.x]])) %>% 
-    purrr::map(~filter(.x, !grepl("Patient|Data|[R|r]aw", V1))) %>% 
-    purrr::map(~dplyr::select(.x, c(ncol(.x), 2,4))) %>% 
-    purrr::map(~dplyr::rename(.x, "Time" = "V2", "THC" = "V4")) %>% 
+    purrr::map(~dplyr::filter(.x, !grepl("Patient|Data|[R|r]aw", V1))) %>% 
+    purrr::map(~dplyr::select(.x, c(ncol(.x), 2:4))) %>% 
+    purrr::map(~dplyr::rename(.x, "Time" = "V2", "O2_sat" = "V3", "THC" = "V4")) %>% 
     purrr::map(~mutate(.x, Time = as.numeric(Time))) %>% 
-    purrr::map(~mutate(.x, THC = as.numeric(THC)))
+    purrr::map(~mutate(.x, THC = as.numeric(THC))) %>% 
+    purrr::map(~mutate(.x, O2_sat = as.numeric(O2_sat)))
   
   # renumber patients
-  l_thc <- 1:length(l_thc) %>% 
-    purrr::map(~mutate(l_thc[[.x]], number = c(1:length(l_thc))[.x])) %>% 
+  l_raw_data <- 1:length(l_raw_data) %>% 
+    purrr::map(~mutate(l_raw_data[[.x]], number = c(1:length(l_raw_data))[.x])) %>% 
     purrr::map(~dplyr::select(.x, c(number, everything())))
   
   # condense list to df
-  df_thc <- rbindlist(l_thc) %>% 
-    as_tibble() 
+  df_raw_data <- rbindlist(l_raw_data) %>% as_tibble() 
   
   # make sure status is HV, UM, or CM
-  df_thc$Status[df_thc$Status == "HC"] <- "HV"
-  df_thc <- df_thc %>% dplyr::filter(Status != "-0") # unclear what group this patient was in
+  df_raw_data$Status[df_raw_data$Status == "HC"] <- "HV"
+  df_raw_data <- df_raw_data %>% dplyr::filter(Status != "-0") # unclear what group this patient was in
   
-  # smooth data with 1s moving average
-  df_thc <- df_thc %>% 
-    group_by(number) %>% 
-    mutate(roll_mean = zoo::rollmean(THC, k = 50, fill = NA)) %>% 
-    ungroup()
+  # # smooth data with 1s moving average
+  # df_thc <- df_thc %>% 
+  #   group_by(number) %>% 
+  #   mutate(roll_mean = zoo::rollmean(THC, k = 50, fill = NA)) %>% 
+  #   ungroup()
   
 
 
@@ -63,33 +63,33 @@
 # explore --------------------------------------------------------------------
 
 
-  # distribution of data by status only
-  df_thc %>% 
+  # distribution of THC data by status only
+  df_raw_data %>% 
     
-    ggplot(aes(roll_mean)) +
+    ggplot(aes(THC)) +
     geom_histogram() +
     facet_wrap(~Status, scales = "free")
   
   # distribution by patient number
-  df_thc %>% 
+  df_raw_data %>% 
     
-    ggplot(aes(roll_mean)) +
+    ggplot(aes(THC)) +
     geom_histogram() +
     facet_grid(~number, scales = "free") 
 
   # plot all signals together
-  df_thc %>% 
+  df_raw_data %>% 
     
-    ggplot(aes(x = Time, y = roll_mean)) +
+    ggplot(aes(x = Time, y = THC)) +
     geom_line() +
     facet_wrap(~Status, scales = "free_y") +
     
     theme_bw()
   
   # facet by number
-  df_thc %>% 
+  df_raw_data %>% 
     
-    ggplot(aes(x = Time, y = roll_mean)) +
+    ggplot(aes(x = Time, y = THC)) +
     geom_line() +
     facet_wrap(~number, scales = "free_y") +
     
@@ -102,17 +102,28 @@
 
 
 # remove signals that aren't at least 200s  
-  
-  df_thc %>% group_by(number) %>% count() %>% filter(n < 20000) # 24 and 30 not long enough
-  df_thc <- df_thc %>% filter(!(number %in% c(24, 30)))
+  sampling_rate <- 1/.02
+  df_raw_data %>% group_by(number) %>% count() %>% dplyr::filter(n < 200*sampling_rate) # 24 and 30 not long enough
+  df_raw_data <- df_raw_data %>% filter(!(number %in% c(24, 30)))
 
-# plotting function
+# plotting functions
   
-  f_plot_pt <- function(df, num) {
+  # THC
+  f_plot_thc <- function(df, num) {
     
     df %>% 
-      filter(number == num) %>% 
-      ggplot(aes(x = Time, y = roll_mean)) +
+      dplyr::filter(number == num) %>% 
+      ggplot(aes(x = Time, y = THC)) +
+      geom_line()
+    
+  }
+  
+  # O2 sat
+  f_plot_o2sat <- function(df, num) {
+    
+    df %>% 
+      dplyr::filter(number == num) %>% 
+      ggplot(aes(x = Time, y = O2_sat)) +
       geom_line()
     
   }
@@ -122,78 +133,94 @@
   f_segment_signal <- function(df, num, start, end) {
     
     df %>% 
-      filter(number == num) %>% 
-      filter(Time > start & Time < end)
+      dplyr::filter(number == num) %>% 
+      dplyr::filter(Time > start & Time < end)
   }
 
 # 1
-  df_thc %>% f_plot_pt(1) # eyeball where after blips is
-  df_thc1 <- df_thc %>% f_segment_signal(1, 1200, 2500) # shorten signal to that length, must be >200s
-  df_thc1$roll_mean %>% var(na.rm = TRUE) # check var less than 1000
+  df_raw_data %>% f_plot_thc(1) +theme_bw()# eyeball where after blips is
+  df_raw_data %>% f_plot_o2sat(1)
+  df_raw_data1 <- df_raw_data %>% f_segment_signal(1, 1200, 2500) # shorten signal to that length, must be >200s
+  df_raw_data1$THC %>% var(na.rm = TRUE) # check var less than 1000
+
   
 # 2
-  df_thc %>% f_plot_pt(2) 
-  df_thc2 <- df_thc %>% f_segment_signal(2, 900, 2000)
-  df_thc2$roll_mean %>% var(na.rm = TRUE)
+  df_raw_data %>% f_plot_thc(2) 
+  df_raw_data %>% f_plot_o2sat(2)
+  df_raw_data2 <- df_raw_data %>% f_segment_signal(2, 900, 2000)
+  df_raw_data2$THC %>% var(na.rm = TRUE)
+
   
 # 3
-  df_thc %>% f_plot_pt(3) 
-  df_thc3 <- df_thc %>% f_segment_signal(3, 500, 2000)
-  df_thc3$roll_mean %>% var(na.rm = TRUE)
+  df_raw_data %>% f_plot_thc(3) 
+  df_raw_data %>% f_plot_o2sat(3)
+  df_raw_data3 <- df_raw_data %>% f_segment_signal(3, 500, 2000)
+  df_raw_data3$THC %>% var(na.rm = TRUE)
 
 # 4
-  df_thc %>% f_plot_pt(4) 
-  df_thc4 <- df_thc %>% f_segment_signal(4, 0, 2000) # no blips!
-  df_thc4$roll_mean %>% var(na.rm = TRUE)
+  df_raw_data %>% f_plot_thc(4) 
+  df_raw_data %>% f_plot_o2sat(4) 
+  df_raw_data4 <- df_raw_data %>% f_segment_signal(4, 0, 2000) # no blips!
+  df_raw_data4$THC %>% var(na.rm = TRUE)
   
 # 5
-  df_thc %>% f_plot_pt(5) # ***same as 4???
-  df_thc5 <- df_thc %>% f_segment_signal(5, 0, 2000) # no blips!
-  df_thc5$roll_mean %>% var(na.rm = TRUE)
+  df_raw_data %>% f_plot_thc(5) # ***same as 4???
+  df_raw_data %>% f_plot_o2sat(5) 
+  df_raw_data5 <- df_raw_data %>% f_segment_signal(5, 0, 2000) # no blips!
+  df_raw_data5$THC %>% var(na.rm = TRUE)
   
 # 6
-  df_thc %>% f_plot_pt(6) # same as 4 & 5
-  df_thc6 <- df_thc %>% f_segment_signal(6, 0, 2000) # no blips!
-  df_thc6$roll_mean %>% var(na.rm = TRUE)
+  df_raw_data %>% f_plot_thc(6) # same as 4 & 5
+  df_raw_data %>% f_plot_o2sat(6) 
+  df_raw_data6 <- df_raw_data %>% f_segment_signal(6, 0, 2000) # no blips!
+  df_raw_data6$THC %>% var(na.rm = TRUE)
   
 # 7
-  df_thc %>% f_plot_pt(7)
-  df_thc7 <- df_thc %>% f_segment_signal(7, 0, 2000) # no blips!
-  df_thc7$roll_mean %>% var(na.rm = TRUE)
+  df_raw_data %>% f_plot_thc(7)
+  df_raw_data %>% f_plot_o2sat(7) 
+  df_raw_data7 <- df_raw_data %>% f_segment_signal(7, 0, 2000) # no blips!
+  df_raw_data7$THC %>% var(na.rm = TRUE)
   
 # 8
-  df_thc %>% f_plot_pt(8)
-  df_thc8 <- df_thc %>% f_segment_signal(8, 0, 2000) # no blips!
-  df_thc8$roll_mean %>% var(na.rm = TRUE)
+  df_raw_data %>% f_plot_thc(8)
+  df_raw_data %>% f_plot_o2sat(8) 
+  df_raw_data8 <- df_raw_data %>% f_segment_signal(8, 0, 2000) # no blips!
+  df_raw_data8$THC %>% var(na.rm = TRUE)
   
 # 9
-  df_thc %>% f_plot_pt(9)
-  df_thc9 <- df_thc %>% f_segment_signal(9, 0, 2000) # no blips!
-  df_thc9$roll_mean %>% var(na.rm = TRUE)
+  df_raw_data %>% f_plot_thc(9)
+  df_raw_data %>% f_plot_o2sat(9) 
+  df_raw_data9 <- df_raw_data %>% f_segment_signal(9, 0, 2000) # no blips!
+  df_raw_data9$THC %>% var(na.rm = TRUE)
   
 # 10
-  df_thc %>% f_plot_pt(10)
-  df_thc10 <- df_thc %>% f_segment_signal(10, 0, 2000) # no blips!
-  df_thc10$roll_mean %>% var(na.rm = TRUE)
+  df_raw_data %>% f_plot_thc(10)
+  df_raw_data %>% f_plot_o2sat(10) 
+  df_raw_data10 <- df_raw_data %>% f_segment_signal(10, 0, 2000) # no blips!
+  df_raw_data10$THC %>% var(na.rm = TRUE)
   
 # 11
-  df_thc %>% f_plot_pt(11)
-  df_thc11 <- df_thc %>% f_segment_signal(11, 0, 2000) # no blips!
-  df_thc11$roll_mean %>% var(na.rm = TRUE)
+  df_raw_data %>% f_plot_thc(11)
+  df_raw_data %>% f_plot_o2sat(11) 
+  df_raw_data11 <- df_raw_data %>% f_segment_signal(11, 0, 2000) # no blips!
+  df_raw_data11$THC %>% var(na.rm = TRUE)
   
 # 12
-  df_thc %>% f_plot_pt(12)
-  df_thc12 <- df_thc %>% f_segment_signal(12, 0, 2000) # no blips!
-  df_thc12$roll_mean %>% var(na.rm = TRUE)
+  df_raw_data %>% f_plot_thc(12)
+  df_raw_data %>% f_plot_o2sat(12) 
+  df_raw_data12 <- df_raw_data %>% f_segment_signal(12, 0, 2000) # no blips!
+  df_raw_data12$THC %>% var(na.rm = TRUE)
 
 # 13
-  df_thc %>% f_plot_pt(13)
-  df_thc13 <- df_thc %>% f_segment_signal(13, 0, 2000) # no blips?
-  df_thc13$roll_mean %>% var(na.rm = TRUE) # technically within range
+  df_raw_data %>% f_plot_thc(13)
+  df_raw_data %>% f_plot_o2sat(13) 
+  df_raw_data13 <- df_raw_data %>% f_segment_signal(13, 900, 2000)
+  df_raw_data13$THC %>% var(na.rm = TRUE) 
   
 # 14
-  df_thc %>% f_plot_pt(14)
-  df_thc14 <- df_thc %>% f_segment_signal(14, 400, 2000)
+  df_raw_data %>% f_plot_thc(14)
+  df_raw_data %>% f_plot_o2sat(14) 
+  df_raw_data14 <- df_thc %>% f_segment_signal(14, 400, 2000)
   df_thc14$roll_mean %>% var(na.rm = TRUE)
   
 # 15
@@ -684,6 +711,8 @@
 
 # high-pass signal filtering --------------------------------------------------------
 
+  
+  
   # use a high-pass filter to remove anything below 0.01 Hz (associated with head displacements and motion noise) 
   
   

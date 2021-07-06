@@ -17,7 +17,6 @@
     l_means <- 1:length(l_thc_filt_pass) %>% purrr::map(~mean(l_thc_filt_pass[[.x]]$sg_filt, na.rm = TRUE))
     
     # subtract the mean and take the cumulative sum
-    l_thc_cumsum <- 1:length(l_thc_filt_pass) %>% purrr::map(~filter(l_thc_filt_pass[[.x]], !is.na(sg_filt)))
     l_thc_cumsum <- 1:length(l_means) %>% purrr::map(~mutate(l_thc_filt_pass[[.x]], mean = l_means[[.x]]))
     df_thc_cumsum <- rbindlist(l_thc_cumsum) %>% as_tibble()
     
@@ -27,27 +26,28 @@
       mutate(cumsum = cumsum(subtract_mean)) %>% 
       ungroup()
     
+
     # plot
-    df_thc_cumsum %>% filter(number == 1) %>% 
-      
+    df_thc_cumsum %>% dplyr::filter(number == 1) %>% 
       ggplot(aes(x = Time)) +
-      geom_line(aes(y = sg_filt)) +
-      geom_line(aes(y = cumsum), color = "red")
-    
-    
-    
-    
+      geom_line(aes(y = cumsum)) +
+      geom_line(aes(y = sg_filt), color = "red") +
+      
+      theme_bw() +
+      ggtitle("Cumulative sum of Savitzy-Golar smoothed signal")
+        
+
+        
 # split into windows --------------------------------------------------------------------
     
     
     
     # start with signal from patient 1
-    df_thc_cumsum1 <- df_thc_cumsum %>% filter(number == 1)
     df_thc_cumsum1 %>% nrow()/50 # signal is 1169 seconds long
     
     # determine window lengths
     
-      # criteria:
+      # criteria (Hardstone et al 2012):
       # lower end = at least 4 samples (linear detrending will perform poorly with less points)
       # high end = <10% of signal length (anything higher is more noisy bc less than 10 windows to average)
       # need to be equally spaced on a log10 scale (gives equal weight to time scales when fitting  a line)
@@ -122,31 +122,29 @@
       
       l_splits[[window_num]] %>% 
         ggplot(aes(x = Time)) +
-        geom_line(aes(y = THC), color = "blue") +
-        geom_line(aes(y = cumsum), color = "black") +
-        geom_smooth(aes(y = cumsum), method = "lm", color = "red") +
+        geom_line(aes(y = sg_filt), color = "red", alpha = 0.5) +
+        geom_line(aes(y = cumsum), color = "black", alpha = 0.65) +
+        geom_smooth(aes(y = cumsum), method = "lm", color = "blue", se = FALSE) +
         theme_bw()
       
     }
     
-    f_plot_window(l_splits[[6]], 1)
-    
-    
+    f_plot_window(l_splits[[11]], 1)
+
     # plot detrended window
     p_plot_resids <- function(l_resids, window_num) {
       
       l_resids[[window_num]] %>% 
         ggplot(aes(x = Time, y = residuals)) +
-        geom_line() +
-        geom_hline(yintercept = 0, color = "red") +
+        geom_line(color = "black") +
+        geom_hline(yintercept = 0, color = "blue") +
         theme_bw()
       
-
     }
     
-    p_plot_resids(l_resids[[6]], 1)
+    p_plot_resids(l_resids[[11]], 1)
     
-    
+
     
 
 # calculate standard deviation of detrended line --------------------------
@@ -244,17 +242,18 @@
     
     
     l_dfa <- 1:length(l_thc_cumsum) %>% purrr::map(~f_dfa(l_thc_cumsum[[.x]], num_of_windows = 10))
-    
 
+    
     # save DFA analysis results
-    save(l_dfa, file = "dfa_results.Rdata")   
+    save(l_dfa, l_dfa2, file = "dfa_results.Rdata")   
     
-    
+    load("dfa_results.Rdata")
     
 
-# signals are segmented - want slope after filter-induced correlations --------------------------------------------------
+# second order detrending --------------------------------------------------
 
-
+## separately compute scaling exponents for short-length vs long-length windws, for short-range and long-range correlations of the time series (Seleznov et al 2019)
+    
     library(segmented)
     
     # extract the second slope after the "bend" in the alpha slope 
@@ -271,13 +270,15 @@
         
       } else if (length(segfit$coefficients) == 4) {
         
-        a2 <- slope(segfit)$log10_window_size[2,1]
-        
+          a2 <- slope(segfit)$log10_window_size[2,1]
+          
       }
       
       return(a2)
       
     }
+    
+    alphas <- 1:length(l_dfa) %>% purrr::map(~l_dfa[[.x]][[2]]) %>% unlist()
     
     l_second_alpha <- 1:length(l_dfa) %>% purrr::map(~f_segment_slope(l_dfa[[.x]]))
     second_alpha <- 1:length(l_dfa) %>% purrr::map(~f_segment_slope(l_dfa[[.x]])) %>% unlist()
@@ -289,24 +290,134 @@
       mutate(alpha = alphas, 
              second_alpha = second_alpha,
              Status = as.factor(Status))
+    
 
 
           
 
 # plot & explore results --------------------------------------
 
+    # plot example of detrending cumulative sum
+    df_thc_cumsum1 <- df_thc_cumsum %>% dplyr::filter(number == 1)
+    
+    window_size <- window_lengths[11]*50
+    signal_length <- nrow(df_thc_cumsum1)
+    reps <- rep(1:ceiling(signal_length/window_size), each = window_size)[1:signal_length]
+    df_thc_cumsum1$window_num <- reps
+    
+    ggplot(data = df_thc_cumsum1, aes(x = Time)) +
+      geom_line(aes(y = sg_filt), color = "red", alpha = 0.5) +
+      geom_line(aes(y = cumsum), alpha = 0.5) +
+      
+      # draw in windows
+      geom_vline(xintercept = df_thc_cumsum1[1,]$Time + 0*window_lengths[11], lty = 2) +
+      geom_vline(xintercept = df_thc_cumsum1[1,]$Time + 1*window_lengths[11], lty = 2) +
+      geom_vline(xintercept = df_thc_cumsum1[1,]$Time + 2*window_lengths[11], lty = 2) +
+      geom_vline(xintercept = df_thc_cumsum1[1,]$Time + 3*window_lengths[11], lty = 2) +
+      geom_vline(xintercept = df_thc_cumsum1[1,]$Time + 4*window_lengths[11], lty = 2) +
+      geom_vline(xintercept = df_thc_cumsum1[1,]$Time + 5*window_lengths[11], lty = 2) +
+      geom_vline(xintercept = df_thc_cumsum1[1,]$Time + 6*window_lengths[11], lty = 2) +
+      geom_vline(xintercept = df_thc_cumsum1[1,]$Time + 7*window_lengths[11], lty = 2) +
+      geom_vline(xintercept = df_thc_cumsum1[1,]$Time + 8*window_lengths[11], lty = 2) +
+      geom_vline(xintercept = df_thc_cumsum1[1,]$Time + 9*window_lengths[11], lty = 2) +
+      geom_vline(xintercept = df_thc_cumsum1[1,]$Time + 10*window_lengths[11], lty = 2) +
+      
+      geom_smooth(data = df_thc_cumsum1 %>% dplyr::filter(window_num == 1), aes(y = cumsum), method = "lm", se = FALSE) +
+      geom_smooth(data = df_thc_cumsum1 %>% dplyr::filter(window_num == 2), aes(y = cumsum), method = "lm", se = FALSE) +
+      geom_smooth(data = df_thc_cumsum1 %>% dplyr::filter(window_num == 3), aes(y = cumsum), method = "lm", se = FALSE) +
+      geom_smooth(data = df_thc_cumsum1 %>% dplyr::filter(window_num == 4), aes(y = cumsum), method = "lm", se = FALSE) +
+      geom_smooth(data = df_thc_cumsum1 %>% dplyr::filter(window_num == 5), aes(y = cumsum), method = "lm", se = FALSE) +
+      geom_smooth(data = df_thc_cumsum1 %>% dplyr::filter(window_num == 6), aes(y = cumsum), method = "lm", se = FALSE) +
+      geom_smooth(data = df_thc_cumsum1 %>% dplyr::filter(window_num == 7), aes(y = cumsum), method = "lm", se = FALSE) +
+      geom_smooth(data = df_thc_cumsum1 %>% dplyr::filter(window_num == 8), aes(y = cumsum), method = "lm", se = FALSE) +
+      geom_smooth(data = df_thc_cumsum1 %>% dplyr::filter(window_num == 9), aes(y = cumsum), method = "lm", se = FALSE) +
+      geom_smooth(data = df_thc_cumsum1 %>% dplyr::filter(window_num == 10), aes(y = cumsum), method = "lm", se = FALSE) +
+      
+      labs(y = "THC") +
+      theme_bw() +
+      ggtitle("Cumulative sum of Savitzy-Golay smoothed signal")
+    
+    
+    
+library(DescTools)
+    
+    # plot DFA results
+    
+    names(l_dfa) <- names(l_thc_cumsum)  
+    
+      # segmented
+      df1 <- l_dfa[[1]][[1]] %>% mutate(log10_avg_fluct = log10(avg_fluctuation), log10_window_size = log10(window_size))
+      fit1 <- lm(log10_avg_fluct ~ log10_window_size, data = df1) 
+      segfit1 <- segmented(fit1)
+      slopes1 <- coef(segfit1) # the coefficients are the differences in slope in comparison to the previous slope
 
-    # plot overall
+      
+      # first line: 
+      #y = b0 + b1*x; y = intercept1 + slope1 * x
+      
+      # second line:
+      # y = c0 + c1*x; y = intercept2 + slope2 * x
+
+      # At the breakpoint (break1), the segments b and c intersect: b0 + b1*x = c0 + c1*x
+      
+      b0 <- slopes1[[1]]
+      b1 <- slopes1[[2]]
+      
+      c1 <- slopes1[[2]] + slopes1[[3]]
+      break1 <- segfit1$psi[[2]]
+      
+      # Solve for c0 (intercept of second segment):
+      c0 <- b0 + b1 * break1 - c1 * break1
+    
+      l_dfa[[1]][[1]] %>% 
+        ggplot(aes(x = log10(window_size), y = log10(avg_fluctuation))) +
+        geom_point(shape = 1, size = 3) +
+        geom_vline(xintercept = break1, lty = 2) + # add line showing breakpoint
+        geom_abline(intercept = b0, slope = b1, color = "#F8766D") +
+        geom_abline(intercept = c0, slope = c1, color = "#00BFC4") +
+        
+        geom_text(x = -0.5, y = 2, label = paste0("alpha = ", round(b1, 2)), color = "#F8766D") +
+        geom_text(x = 1.5, y = 1.25, label = paste0("alpha = ", round(c1, 2)), color = "#00BFC4") +
+        
+        theme_bw() +
+        ggtitle("Patient 1 (CM) DFA results")
+      
+      f_segment_slope(l_dfa[[1]])
+      
+      # not segmented
+      df_combine <-  l_dfa[[6]][[1]] %>% mutate(number = 8, Status = "CM") %>% 
+        bind_rows(l_dfa[[60]][[1]] %>% mutate(number = 65, Status = "UM"), 
+                  l_dfa[[74]][[1]] %>% mutate(number = 80, Status = "HV"))
+      
+      df80 <- l_dfa[[74]][[1]] %>% mutate(log10_avg_fluct = log10(avg_fluctuation), log10_window_size = log10(window_size))
+      fit80 <- lm(log10_avg_fluct ~ log10_window_size, df80)
+      
+      df_combine %>% dplyr::filter(number == 80) %>% 
+        ggplot(aes(x = log10(window_size), y = log10(avg_fluctuation))) +
+        geom_point(shape = 1, size = 3) +
+        geom_abline(intercept = coef(fit80)[1], slope = coef(fit80)[2], color = "#F8766D") +
+        geom_text(x = -0.5, y = 2, label = paste0("alpha = ", round(coef(fit80)[2], 2))) +
+        
+        theme_bw() +
+        ggtitle("Patient 80 (HV) DFA results")
+
+      
+    # plot alpha by group
     df_dfa_res %>% 
       ggplot(aes(x = Status, y = second_alpha)) +
       geom_violin(aes(color = Status)) +
       geom_jitter(position = position_jitter(0.2), shape = 1) +
       stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
-      theme_bw()
+      
+      labs(y = "alpha") +
+      ggtitle("Cerebral tissue hemoglobin concentration alpha") +
+    
+      theme_bw() +
+      theme(legend.position = "none")
     
     # test for differences
-    kruskal.test(second_alpha ~ Status, data = df_second_alphas)
-    DunnTest(second_alpha ~ Status, data = df_second_alphas)
+    kruskal.test(second_alpha ~ Status, data = df_dfa_res)
+    DunnTest(second_alpha ~ Status, data = df_dfa_res)
     
     
     # looks like there could be two distinct distributions in the CM group...
@@ -325,7 +436,12 @@
       geom_violin(aes(color = Status_split), position = position_dodge(0.0)) +
       geom_jitter(position = position_jitter(0.1), shape = 1) +
       stat_summary(fun = "median", geom = "crossbar", aes(color = Status_split), size = 0.2, width = 0.5) +
-      theme_bw()
+      
+      labs(y = "alpha") +
+      ggtitle("Cerebral tissue hemoglobin concentration alpha") +
+      
+      theme_bw() +
+      theme(legend.position = "none")
     
     # test for differences
     kruskal.test(second_alpha ~ Status_split, data = df_dfa_res2)
@@ -333,10 +449,37 @@
 
     
     
+
+
+# combine results with average THC for export -----------------------------
+
+    df_results <- df_thc_cumsum %>% 
+      group_by(number) %>% 
+      summarise(mean(THC)) %>% 
+      left_join(df_dfa_res, by = "number") %>% 
+      rename("Hb_total" = `mean(THC)`) %>% 
+      dplyr::select(c(number, Status, everything()))
+
+    save(df_results, file = "results.Rdata")   
+    
+    df_results_binomial <- df_results %>% 
+      dplyr::filter(Status != "HV") %>% 
+      mutate(Status = as.factor(ifelse(Status == "CM", 1, 0))) 
+    
+    glm(Status ~ Hb_total + second_alpha, family = "binomial", data = df_results_binomial) %>% summary()
+    
     
     
     
         
+    
+    
+    
+    
+    
+    
+    
+    
 
 
 
