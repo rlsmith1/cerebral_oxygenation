@@ -5,7 +5,7 @@
 ## below a certain limit is to check all potential sublists, starting with the biggest ones and then shrinking
 ## until we find a smaller one. 
 
-## our parameters: f_filter_signal(df, min_length = 20000, max_var = 1000)
+## our parameters: f_filter_signal(df, min_length = 200s*sampling rate, max_var = 1000)
 
 
 f_filter_signal <- function(df, min_length, max_var){
@@ -16,7 +16,7 @@ f_filter_signal <- function(df, min_length, max_var){
       
       df_temp <- df[start:(start + length - 1),]
 
-      var <- df_temp$roll_mean %>% var(na.rm = TRUE)
+      var <- df_temp$THC %>% var(na.rm = TRUE)
       
       if (var <= max_var) {
         
@@ -36,7 +36,9 @@ f_filter_signal <- function(df, min_length, max_var){
 
 
 doParallel::registerDoParallel()
-f1 <- f_filter_signal(df_thc1, min_length = 20000, max_var = 1000)
+sampling_rate <- 1/.02
+
+f1 <- f_filter_signal(df_raw_data %>% dplyr::filter(number == 1), min_length = 200*sampling_rate, max_var = 1000)
 
 
 
