@@ -2,6 +2,15 @@
 
 
 
+
+# libraries ---------------------------------------------------------------
+
+  library(tidyverse)
+  library(purrr)
+  library(data.table)
+
+
+
 # load in processed signal data -------------------------------------------
 
   load("filtered_signals.Rdata")
@@ -10,6 +19,8 @@
 
 # compute cumulative sum --------------------------------------------------
 
+
+## THC
     # create list, where each object is a patient
     l_thc_filt_pass <- df_thc_filt_pass %>% split(f = df_thc_filt_pass$number)
 
@@ -26,7 +37,6 @@
       mutate(cumsum = cumsum(subtract_mean)) %>% 
       ungroup()
     
-
     # plot
     df_thc_cumsum %>% dplyr::filter(number == 1) %>% 
       ggplot(aes(x = Time)) +
@@ -35,6 +45,34 @@
       
       theme_bw() +
       ggtitle("Cumulative sum of Savitzy-Golar smoothed signal")
+    
+    
+## O2 sat
+    # create list, where each object is a patient
+    l_o2sat_filt_pass <- df_o2sat_filt_pass %>% split(f = df_o2sat_filt_pass$number)
+    
+    # take the mean of each filtered signal
+    l_means <- 1:length(l_o2sat_filt_pass) %>% purrr::map(~mean(l_o2sat_filt_pass[[.x]]$sg_filt, na.rm = TRUE))
+    
+    # subtract the mean and take the cumulative sum
+    l_o2sat_cumsum <- 1:length(l_means) %>% purrr::map(~mutate(l_o2sat_filt_pass[[.x]], mean = l_means[[.x]]))
+    df_o2sat_cumsum <- rbindlist(l_o2sat_cumsum) %>% as_tibble()
+    
+    df_o2sat_cumsum <- df_o2sat_cumsum %>% 
+      mutate(subtract_mean = sg_filt - mean) %>% 
+      group_by(number) %>% 
+      mutate(cumsum = cumsum(subtract_mean)) %>% 
+      ungroup()
+    
+    # plot
+    df_o2sat_cumsum %>% dplyr::filter(number == 1) %>% 
+      ggplot(aes(x = Time)) +
+      geom_line(aes(y = cumsum)) +
+      geom_line(aes(y = sg_filt), color = "red") +
+      
+      theme_bw() +
+      ggtitle("Cumulative sum of Savitzy-Golar smoothed signal")
+    
         
 
         
@@ -234,6 +272,8 @@
     
     # create list of df cumsum, where each object is a patient
     l_thc_cumsum <- df_thc_cumsum %>% split(f = df_thc_cumsum$number)
+    l_o2sat_cumsum <- df_o2sat_cumsum %>% split(f = df_o2sat_cumsum$number)
+    
     
     # repeat for all patients!!
     
@@ -241,11 +281,12 @@
     registerDoParallel()
     
     
-    l_dfa <- 1:length(l_thc_cumsum) %>% purrr::map(~f_dfa(l_thc_cumsum[[.x]], num_of_windows = 10))
-
+    l_dfa_thc <- 1:length(l_thc_cumsum) %>% purrr::map(~f_dfa(l_thc_cumsum[[.x]], num_of_windows = 10))
+    l_dfa_o2sat <- 1:length(l_o2sat_cumsum) %>% purrr::map(~f_dfa(l_o2sat_cumsum[[.x]], num_of_windows = 10))
     
+
     # save DFA analysis results
-    save(l_dfa, l_dfa2, file = "dfa_results.Rdata")   
+    save(l_dfa_thc, l_dfa_o2sat, file = "dfa_results.Rdata")   
     
     load("dfa_results.Rdata")
     
@@ -278,25 +319,40 @@
       
     }
     
-    alphas <- 1:length(l_dfa) %>% purrr::map(~l_dfa[[.x]][[2]]) %>% unlist()
+    # THC
+      thc_alphas <- 1:length(l_dfa_thc) %>% purrr::map(~l_dfa_thc[[.x]][[2]]) %>% unlist()
+      
+      l_thc_second_alpha <- 1:length(l_dfa_thc) %>% purrr::map(~f_segment_slope(l_dfa_thc[[.x]]))
+      thc_second_alpha <- 1:length(l_dfa_thc) %>% purrr::map(~f_segment_slope(l_dfa_thc[[.x]])) %>% unlist()
+      
+      # combine dfa results into df
+      df_thc_dfa <- df_thc_cumsum %>% 
+        count(number, Status) %>% 
+        dplyr::select(-n) %>% 
+        mutate(alpha = thc_alphas, 
+               second_alpha = thc_second_alpha,
+               Status = as.factor(Status))
     
-    l_second_alpha <- 1:length(l_dfa) %>% purrr::map(~f_segment_slope(l_dfa[[.x]]))
-    second_alpha <- 1:length(l_dfa) %>% purrr::map(~f_segment_slope(l_dfa[[.x]])) %>% unlist()
-    
-    # combine dfa results into df
-    df_dfa_res <- df_thc_cumsum %>% 
-      count(number, Status) %>% 
-      dplyr::select(-n) %>% 
-      mutate(alpha = alphas, 
-             second_alpha = second_alpha,
-             Status = as.factor(Status))
-    
+    # O2 sat
+      o2sat_alphas <- 1:length(l_dfa_o2sat) %>% purrr::map(~l_dfa_o2sat[[.x]][[2]]) %>% unlist()
+      
+      l_o2sat_second_alpha <- 1:length(l_dfa_o2sat) %>% purrr::map(~f_segment_slope(l_dfa_o2sat[[.x]]))
+      o2sat_second_alpha <- 1:length(l_dfa_o2sat) %>% purrr::map(~f_segment_slope(l_dfa_o2sat[[.x]])) %>% unlist()
+      
+      # combine dfa results into df
+      df_o2sat_dfa <- df_o2sat_cumsum %>% 
+        count(number, Status) %>% 
+        dplyr::select(-n) %>% 
+        mutate(alpha = o2sat_alphas, 
+               second_alpha = o2sat_second_alpha,
+               Status = as.factor(Status))
+      
 
 
-          
-
+      
 # plot & explore results --------------------------------------
 
+      
     # plot example of detrending cumulative sum
     df_thc_cumsum1 <- df_thc_cumsum %>% dplyr::filter(number == 1)
     
@@ -345,6 +401,19 @@ library(DescTools)
     
     names(l_dfa) <- names(l_thc_cumsum)  
     
+      # not segmented
+      df1 <- l_dfa[[1]][[1]] %>% mutate(log10_avg_fluct = log10(avg_fluctuation), log10_window_size = log10(window_size))
+      fit1 <- lm(log10_avg_fluct ~ log10_window_size, df1)
+      
+      df1 %>% 
+        ggplot(aes(x = log10(window_size), y = log10(avg_fluctuation))) +
+        geom_point(shape = 1, size = 3) +
+        geom_abline(intercept = coef(fit1)[1], slope = coef(fit1)[2], color = "#F8766D") +
+        geom_text(x = -0.5, y = 2, label = paste0("alpha = ", round(coef(fit1)[2], 2))) +
+        
+        theme_bw() +
+        ggtitle("Patient 1 (CM) DFA results")
+    
       # segmented
       df1 <- l_dfa[[1]][[1]] %>% mutate(log10_avg_fluct = log10(avg_fluctuation), log10_window_size = log10(window_size))
       fit1 <- lm(log10_avg_fluct ~ log10_window_size, data = df1) 
@@ -384,90 +453,82 @@ library(DescTools)
       
       f_segment_slope(l_dfa[[1]])
       
-      # not segmented
-      df_combine <-  l_dfa[[6]][[1]] %>% mutate(number = 8, Status = "CM") %>% 
-        bind_rows(l_dfa[[60]][[1]] %>% mutate(number = 65, Status = "UM"), 
-                  l_dfa[[74]][[1]] %>% mutate(number = 80, Status = "HV"))
       
-      df80 <- l_dfa[[74]][[1]] %>% mutate(log10_avg_fluct = log10(avg_fluctuation), log10_window_size = log10(window_size))
-      fit80 <- lm(log10_avg_fluct ~ log10_window_size, df80)
-      
-      df_combine %>% dplyr::filter(number == 80) %>% 
-        ggplot(aes(x = log10(window_size), y = log10(avg_fluctuation))) +
-        geom_point(shape = 1, size = 3) +
-        geom_abline(intercept = coef(fit80)[1], slope = coef(fit80)[2], color = "#F8766D") +
-        geom_text(x = -0.5, y = 2, label = paste0("alpha = ", round(coef(fit80)[2], 2))) +
-        
-        theme_bw() +
-        ggtitle("Patient 80 (HV) DFA results")
-
       
     # plot alpha by group
-    df_dfa_res %>% 
-      ggplot(aes(x = Status, y = second_alpha)) +
-      geom_violin(aes(color = Status)) +
-      geom_jitter(position = position_jitter(0.2), shape = 1) +
-      stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
       
-      labs(y = "alpha") +
-      ggtitle("Cerebral tissue hemoglobin concentration alpha") +
-    
-      theme_bw() +
-      theme(legend.position = "none")
-    
-    # test for differences
-    kruskal.test(second_alpha ~ Status, data = df_dfa_res)
-    DunnTest(second_alpha ~ Status, data = df_dfa_res)
-    
-    
-    # looks like there could be two distinct distributions in the CM group...
-    df_dfa_res2 <- df_dfa_res %>% mutate(Status_split = as.factor(case_when(
+      # THC
+      df_thc_dfa %>% 
+        ggplot(aes(x = Status, y = second_alpha)) +
+        geom_violin(aes(color = Status)) +
+        geom_jitter(position = position_jitter(0.2), shape = 1) +
+        stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
+        
+        labs(y = "alpha") +
+        ggtitle("Cerebral tissue hemoglobin concentration alpha") +
       
-      Status == "UM" ~ "UM",
-      Status == "HV" ~ "HV",
-      Status == "CM" & second_alpha > 0.75 ~ "CM_norm",
-      Status == "CM" & second_alpha < 0.75 ~ "CM_disrupt"
+        theme_bw() +
+        theme(legend.position = "none")
       
-    )) )
-    
-    # plot split
-    df_dfa_res2 %>% 
-      ggplot(aes(x = Status, y = second_alpha)) +
-      geom_violin(aes(color = Status_split), position = position_dodge(0.0)) +
-      geom_jitter(position = position_jitter(0.1), shape = 1) +
-      stat_summary(fun = "median", geom = "crossbar", aes(color = Status_split), size = 0.2, width = 0.5) +
+      # test for differences
+      kruskal.test(second_alpha ~ Status, data = df_thc_dfa)
+      DunnTest(second_alpha ~ Status, data = df_thc_dfa)
       
-      labs(y = "alpha") +
-      ggtitle("Cerebral tissue hemoglobin concentration alpha") +
+      # O2 sat
+      df_o2sat_dfa %>% 
+        ggplot(aes(x = Status, y = second_alpha)) +
+        geom_violin(aes(color = Status)) +
+        geom_jitter(position = position_jitter(0.2), shape = 1) +
+        stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
+        
+        labs(y = "alpha") +
+        ggtitle("Cerebral tissue hemoglobin concentration alpha") +
+        
+        theme_bw() +
+        theme(legend.position = "none")
       
-      theme_bw() +
-      theme(legend.position = "none")
-    
-    # test for differences
-    kruskal.test(second_alpha ~ Status_split, data = df_dfa_res2)
-    DunnTest(second_alpha ~ Status_split, data = df_dfa_res2)
+      # test for differences
+      kruskal.test(second_alpha ~ Status, data = df_o2sat_dfa)
+      DunnTest(second_alpha ~ Status, data = df_o2sat_dfa)
+      
+      
 
-    
-    
-
-
+      
 # combine results with average THC for export -----------------------------
 
-    df_results <- df_thc_cumsum %>% 
-      group_by(number) %>% 
-      summarise(mean(THC)) %>% 
-      left_join(df_dfa_res, by = "number") %>% 
-      rename("Hb_total" = `mean(THC)`) %>% 
-      dplyr::select(c(number, Status, everything()))
+    load("raw_data.Rdata")
+    
+    # rejoin number with patient ID
+    df_num_subj <- df_raw_data[,1:2] %>% count(number, subject_id) %>% dplyr::select(-n)
+    
+    # average hemoglobin concentration values for each patients
+    df_avg_thc <- df_thc_cumsum %>% 
+      group_by(number, Status) %>% 
+      summarise(avg_Hb_conc = mean(sg_filt))
+    
+    # average hemoglobin oxygen saturation values for each patients
+    df_avg_o2sat <- df_o2sat_cumsum %>% 
+      group_by(number, Status) %>% 
+      summarise(avg_Hb_o2sat = mean(sg_filt))
+    
+    # put everything together
+    df_results <- df_avg_thc %>% 
+      left_join(df_thc_dfa, by = c("number", "Status")) %>% 
+      dplyr::rename("Hb_conc_overall_alpha" = "alpha", "Hb_conc_second_alpha" = "second_alpha") %>% 
+      left_join(df_avg_o2sat, by = c("number", "Status")) %>% 
+      left_join(df_o2sat_dfa, by = c("number", "Status")) %>% 
+      dplyr::rename("Hb_o2sat_overall_alpha" = "alpha", "Hb_o2sat_second_alpha" = "second_alpha") %>% 
+      left_join(df_num_subj, by = "number") %>% 
+      dplyr::select(c(number, subject_id, everything())) %>% 
+      mutate(Status = factor(Status, levels = c("HV", "UM", "CM")))
+      
+      
 
     save(df_results, file = "results.Rdata")   
     
-    df_results_binomial <- df_results %>% 
-      dplyr::filter(Status != "HV") %>% 
-      mutate(Status = as.factor(ifelse(Status == "CM", 1, 0))) 
     
-    glm(Status ~ Hb_total + second_alpha, family = "binomial", data = df_results_binomial) %>% summary()
     
+  
     
     
     
