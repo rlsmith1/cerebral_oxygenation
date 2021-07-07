@@ -1346,8 +1346,10 @@
       theme(legend.position = "none") ## negative values??
     
   
-  # remove patients with negative o2 sat
-    neg_o2_sat <- df_o2sat_mean %>% dplyr::filter(o2sat_mean < 0) %>% .$number
+  # remove patients with negative o2 sat - run DFA, but do not include these average values in the plots
+    df_o2sat_mean %>% ggplot(aes(x = o2sat_mean)) + geom_histogram(bins = 50)
+    
+    neg_o2_sat <- df_o2sat_mean %>% dplyr::filter(o2sat_mean < 20) %>% .$number
     df_o2sat_filt <- df_o2sat_filt %>% dplyr::filter(!(number %in% neg_o2_sat))
     df_o2sat_filt %>% count(number)
 
