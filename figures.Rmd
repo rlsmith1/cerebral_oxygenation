@@ -30,6 +30,7 @@ library(extrafont)
 library(grDevices)
 
 load("glm_model.Rdata")
+load("results.Rdata")
 
 font_import()
 
@@ -38,67 +39,16 @@ font_import()
 ```{r data}
 
 # read in data
-df_hbox <- read.csv("Data/98 first visit records with cerebral oxygenation stats_trimmed.csv") %>% as_tibble()
 
-# get rid of "Other"
-df_hbox <- df_hbox %>% 
-  filter(Status != "Other") %>% 
-  mutate(Status = factor(Status, levels = c("HV", "UM", "CM")))
+  df_hbox <- read.csv("Data/master_datatable.csv") %>% 
+    as_tibble() %>% 
+    dplyr::select(-1) %>% 
+    mutate(Status = factor(Status, levels = c("HV", "UM", "CM")))
 
-# identify duplicated rows (TM0003, TM2001)
-df_hbox <- df_hbox %>% filter(duplicated(Subject.ID..NIAID.) == FALSE)
-
-# Convert age to numeric
-df_hbox <- df_hbox %>% 
-  mutate(Age = gsub(" Years, ", "_", Age)) %>% 
-  mutate(Age = gsub(" Months ", "", Age)) %>% 
-  separate(Age, into = c("Years", "Months"), sep = "_") %>% 
-  mutate(Years = as.numeric(Years)) %>% 
-  mutate(Months = as.numeric(Months)/12) %>% 
-  mutate(Age = Years + Months) %>% 
-  dplyr::select(-c(Years, Months))
-
-# Convert sex to factor
-df_hbox <- df_hbox %>% mutate(Sex = as.factor(Sex))
-
-# Trim for variables of interest (VOI)
-df_hbox_trim <- df_hbox %>% 
-  dplyr::select(c(Subject.ID..NIAID., Status, Glucose, Hematocrit, Lactate, Temperature,
-                  Arginine.umol.L, Haptoglobin..mg.dl., Hemoglobin..uM., 
-                  BP.Diastolic, BP.Systolic, O2.Sat, RR, HR,
-                  
-                  cerebral.hbdeox, cerebral.hbdeox.alpha, cerebral.hbox, cerebral.hbox.alpha,
-                  cerebral.sat, cerebral.sat.alpha, cerebral.thc, cerebral.thc.alpha)) %>% 
-  
-  dplyr::rename("subject_id" = "Subject.ID..NIAID.", 
-                "Arginine (umol/L)" = "Arginine.umol.L", "Haptoglobin (mg/dL)" = "Haptoglobin..mg.dl.", 
-                "Hemoglobin (uM)" = "Hemoglobin..uM.", "Lactate (mmol/L)" = "Lactate", "Hematocrit (%)" = "Hematocrit",
-                "Systolic BP" = "BP.Systolic", "Diastolic BP" = "BP.Diastolic", "O2 sat" = "O2.Sat", 
-                "Respiration rate" = "RR", "Heart rate" = "HR",
-                
-                "[Hb]" = "cerebral.hbdeox", "[Hb]α" = "cerebral.hbdeox.alpha", 
-                "[HbO2]" = "cerebral.hbox", "[HbO2]α" = "cerebral.hbox.alpha",  
-                "HbO2%" = "cerebral.sat", "HbO2% α" = "cerebral.sat.alpha", 
-                "[HbT]" = "cerebral.thc", "[HbT]α" = "cerebral.thc.alpha") 
-
-# Remove patients labeled as "UM" that instead meet the criteria for severe malaria
-
-  # remove UM patient with lactate > 5 
-  df_hbox_trim <- df_hbox_trim %>% dplyr::filter(!(Status == "UM" & `Lactate (mmol/L)` > 5))
-  
-  # All UM patients have hematocrit > 15%
-  # df_hbox_trim %>% dplyr::filter(Status == "UM"  & `Hematocrit (%)` <= 15)
-  
-# impute missing data with median by group
-f_impute <- function(x, na.rm = TRUE) (replace(x, is.na(x), median(x, na.rm = na.rm)))
-
-df_hbox_impute <- df_hbox_trim %>% 
-  group_by(Status) %>% 
-  mutate_at(3:ncol(.), f_impute) %>% 
-  ungroup()
 
 # pivot long
-df_hbox_long <- df_hbox_trim %>% pivot_longer(cols = 3:ncol(.), names_to = "variable", values_to = "value")
+
+  df_hbox_long <- df_hbox %>% pivot_longer(cols = 4:ncol(.), names_to = "variable", values_to = "value")
 
 ```
 
@@ -107,7 +57,7 @@ df_hbox_long <- df_hbox_trim %>% pivot_longer(cols = 3:ncol(.), names_to = "vari
 ```{r table1}
 
 # number of subjects 
-df_status <- df_hbox_impute %>% 
+df_status <- df_hbox %>% 
   count(Status) %>% 
   pivot_wider(1:2, names_from = "Status", values_from = "n") %>% 
   mutate(variable = "Number of subjects") %>% 
@@ -118,7 +68,7 @@ df_status <- df_hbox_impute %>%
 df_sex <- df_hbox %>% 
   group_by(Status) %>% 
   count(Sex) %>% 
-  filter(Sex != "") %>% 
+  dplyr::filter(Sex != "") %>% 
   pivot_wider(names_from = "Sex", values_from = "n") %>% 
   mutate(perc_fem = round(Female/(Female + Male)*100, 2)) %>% 
   
@@ -131,7 +81,7 @@ df_sex <- df_hbox %>%
 
 df_clinical_res <- df_hbox %>% 
   
-  dplyr::filter(Subject.ID..NIAID. != "TM1018") %>% 
+  # dplyr::filter(Subject.ID..NIAID. != "TM1018") %>% 
   
   group_by(Status) %>% 
   summarise(`Age (years)` = median(Age, na.rm = TRUE), age_q1 = quantile(Age, 0.25, na.rm = TRUE), age_q3 = quantile(Age, 0.75, na.rm = TRUE),
@@ -189,26 +139,24 @@ df_clinical_res <- df_hbox %>%
 
 ```{r fig1}
 
-df_hbox_voi <- df_hbox_impute %>% 
-  dplyr::select(c(Status, `[HbO2]`, `[HbO2]α`, `[Hb]`, `[Hb]α`, `HbO2%`, `HbO2% α`, `[HbT]`, `[HbT]α`)) %>% 
-  dplyr::filter(`[Hb]α` < 3)
 
-df_hbox_voi_long <- df_hbox_voi %>% 
-  pivot_longer(2:9, names_to = "variable", values_to = "value") %>%
-  mutate(variable = factor(variable, levels = c("[HbO2]", "[HbO2]α",   
-                                                 "[Hb]", "[Hb]α", 
-                                                "HbO2%", "HbO2% α", 
-                                                "[HbT]", "[HbT]α"))) 
+# extract variables of interest
+voi <- df_results %>% colnames() %>% .[4:9] 
 
+# select from the long df
+df_hbox_voi_long <- df_hbox_long %>% dplyr::filter(variable %in% voi)
+
+# create color vector
 my_col <- c("CM" = "#00BFC4", "HV" = "#7CAE00", "UM" = "#F8766D")
-  
-df_hbox_voi_long %>% dplyr::filter(variable %in% c("[HbO2]", "[Hb]", "HbO2%", "[HbT]")) %>%
+
+# plot
+df_hbox_voi_long %>% dplyr::filter(!(grepl("alpha", variable))) %>%
   
   ggplot(aes(x = Status, y = value)) +
   geom_violin(aes(color = Status)) +
   geom_jitter(position = position_jitter(0.2), shape = 1) +
   stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
-  facet_wrap(~variable, scales = "free_y", nrow = 2, ncol = 2) +
+  facet_wrap(~variable, scales = "free_y") +
   
   scale_color_manual(values = my_col) +
   theme_bw() +
@@ -224,47 +172,34 @@ df_hbox_voi_long %>% dplyr::filter(variable %in% c("[HbO2]", "[Hb]", "HbO2%", "[
 
 ```{r fig1.pvals, eval = FALSE}
 
-# [HbT]
-kruskal.test(`[HbT]` ~ Status, data = df_hbox_voi)
-dunnTest(`[HbT]` ~ Status, data = df_hbox_voi, method = "bh")
+# hemoglobin concentration
+kruskal.test(avg_Hb_conc ~ Status, data = df_hbox)
+dunnTest(avg_Hb_conc ~ Status, data = df_hbox, method = "bh")
 
-# HbO2%
-kruskal.test(`HbO2%` ~ Status, data = df_hbox_voi)
+# hemoglobin oxygen saturation
+kruskal.test(avg_Hb_o2sat ~ Status, data = df_hbox)
 
 ```
 
-**Figure 1.** Shown are the variables measured by Oxiplex, plotted by patient status [HbT] levels were different between all three groups (Kruskal-Wallis adjusted p-value = 3.25x10^-6^; Dunn Test post-hoc adjusted p-values: CM vs HV = 1.66x10^-6^, CM vs UM = .032, HV vs UM = .033). Levels of cerebral O~2~ saturation did not differ among groups (Kruskal-Wallis adjusted p-value = .07). 
+**Figure 1.** Shown are the variables measured by Oxiplex, plotted by patient status. Cerebral tissue hemoglobin concentration levels were different between cerebral malaria patients and the other two groups, but did not differ between uncomplicated malaria patients and healthy volunteers (Kruskal-Wallis adjusted p-value = 5.00x10^-7^; Dunn Test post-hoc adjusted p-values: CM vs HV = 3.22x10^-6^, CM vs UM = 2.76x10^-4^, HV vs UM = 0.87). Levels of cerebral hemoglobin O~2~ saturation did not differ among groups (Kruskal-Wallis adjusted p-value = 0.28). 
 
 ### Figure 2: Visual summary of α values associated with NIRS variables
 
 ```{r fig2}
 
-df_hbox_voi <- df_hbox_impute %>% 
-  dplyr::select(c(Status, `[HbO2]`, `[HbO2]α`, `[Hb]`, `[Hb]α`, `HbO2%`, `HbO2% α`, `[HbT]`, `[HbT]α`)) %>% 
-  dplyr::filter(`[Hb]α` < 3)
-
-df_hbox_voi_long <- df_hbox_voi %>% 
-  pivot_longer(2:9, names_to = "variable", values_to = "value") %>%
-  mutate(variable = factor(variable, levels = c("[HbO2]", "[HbO2]α",   
-                                                 "[Hb]", "[Hb]α", 
-                                                "HbO2%", "HbO2% α", 
-                                                "[HbT]", "[HbT]α"))) 
-
-my_col <- c("CM" = "#00BFC4", "HV" = "#7CAE00", "UM" = "#F8766D")
-  
-df_hbox_voi_long %>% dplyr::filter(variable %in% c("[HbO2]α", "[Hb]α", "HbO2% α", "[HbT]α")) %>% 
+df_hbox_voi_long %>% dplyr::filter(grepl("second_alpha", variable)) %>% 
   
   ggplot(aes(x = Status, y = value)) +
   geom_violin(aes(color = Status)) +
   geom_jitter(position = position_jitter(0.2), shape = 1) +
   stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
   
-  geom_hline(yintercept = 0.4, alpha = 0.4, lty = 2) +
-  geom_hline(yintercept = 0.6, alpha = 0.4, lty = 2) +
+  geom_hline(yintercept = 0.45, alpha = 0.4, lty = 2) +
+  geom_hline(yintercept = 0.55, alpha = 0.4, lty = 2) +
   geom_hline(yintercept = 1.0, alpha = 0.4, lty = 2) +
   geom_hline(yintercept = 1.5, alpha = 0.4, lty = 2) +
   
-  facet_wrap(~variable, scales = "free_y", nrow = 2, ncol = 2) +
+  facet_wrap(~variable, scales = "free_y") +
   
   ylim(0, 1.5) +
   scale_color_manual(values = my_col) +
@@ -281,34 +216,51 @@ df_hbox_voi_long %>% dplyr::filter(variable %in% c("[HbO2]α", "[Hb]α", "HbO2% 
 
 ```{r fig2.pvals, eval = FALSE}
 
-# [HbT]α
-kruskal.test(`[HbT]α` ~ Status, data = df_hbox_voi)
-dunnTest(`[HbT]α` ~ Status, data = df_hbox_voi, method = "bh")
+# hemoglobin concentration alpha
+kruskal.test(Hb_conc_second_alpha ~ Status, data = df_hbox)
+dunnTest(Hb_conc_second_alpha ~ Status, data = df_hbox, method = "bh")
+
+# hemoglobin oxygen saturation alpha
+kruskal.test(Hb_o2sat_second_alpha ~ Status, data = df_hbox)
+dunnTest(Hb_o2sat_second_alpha ~ Status, data = df_hbox, method = "bh")
 
 ```
 
-**Figure 2** Shown are the alpha values associated with variables measured by the Oxiplex, plotted by patient status. Note: One outlier was removed from Deoxy Hb α (3.52).
+**Figure 2.** Shown are the alpha values associated with the hemoglobin concentration and oxygen saturation signals measured by Oxiplex. Differences among cerebral tissue hemoglobin concentration alpha values were significant by Kruskal-Wallis (adjusted p-value = 1.57x10^-4^), and differences between all groups were significant by post-hoc Dunn Test (adjusted p-values: CM vs HV = 0.03, CM vs UM = 1.65x10^-4^, HV vs UM = 0.04). Cerebral hemoglobin O~2~ saturation alpha values differed between cerebral malaria patients and the other two patient groups (Kruskal-Wallis adjusted p-value = 2.71x10^-5^; Dunn Test post-hoc adjusted p-values: CM vs HV = 5.18x10^-4^, CM vs UM = 4.44x10^-4^, HV vs UM = 0.23). 
 
 ### Figure 3: Logistic regression model on CM vs UM
 
 #### A. PCA
 ```{r fig3a}
-# include variables of interest ([HbT], [HbT] alpha, and hematocrit), remove healthy volunteers from analysis
-df_hbox_log_voi <- df_hbox_impute %>% 
-  dplyr::select(c(2,4:5,19:22)) %>% 
-  dplyr::filter(Status != "HV")
+
+# include variables of interest, remove healthy volunteers from analysis
+
+df_hbox_voi <- df_hbox %>% dplyr::select(c("subject_id", "Status", "Hematocrit", "Lactate", "avg_Hb_conc", "Hb_conc_second_alpha", "avg_Hb_o2sat", "Hb_o2sat_second_alpha")) 
+
+# impute missing data with median by group
+  f_impute <- function(x, na.rm = TRUE) (replace(x, is.na(x), median(x, na.rm = na.rm)))
   
+  df_hbox_impute <- df_hbox_voi %>% 
+    group_by(Status) %>% 
+    mutate_at(3:ncol(.), f_impute) %>% 
+    ungroup() 
+
+# remove healthy volunteers for logistic regression analysis
+df_hbox_log_reg <- df_hbox_impute %>% dplyr::filter(Status != "HV")
+
 # convert tibble to df
-df_hbox_voi_df <- df_hbox_log_voi %>% 
-  dplyr::select(-Status) %>% 
+df_hbox_voi_df <- df_hbox_log_reg %>% 
+  dplyr::select(-c(subject_id, Status)) %>% 
   as.data.frame() 
-rownames(df_hbox_voi_df) <- df_hbox_impute %>% dplyr::filter(Status != "HV") %>% .$subject_id
+
+# add rownames
+rownames(df_hbox_voi_df) <- df_hbox_log_reg %>% .$subject_id
 
 # compute PCA
 my_pca <- prcomp(df_hbox_voi_df, scale = TRUE)
 
 # define groups
-groups <- as.factor(df_hbox_log_voi$Status)
+groups <- as.factor(df_hbox_log_reg$Status)
 
 # Eigenvalues
 pca_eig_val <- get_eigenvalue(my_pca)
@@ -470,7 +422,7 @@ hbox_final %>%
 **Table 2.** Evaluation of the best logistic regression model select from 1000.
 
 
-### Figure 4: Relationships among [HbT], [HbT] alpha, and hematocrit
+### Figure 4: Relationships among hemoglobin concentration, hemoglobin concentration alpha, and hematocrit
 ```{r fig4}
 
 df_hbox_impute %>% filter(Status != "HV") %>% 
@@ -499,22 +451,18 @@ df_hbox_impute %>% filter(Status != "HV") %>%
 f_calc_cor <- function(df, status) {
   
   df %>%
-    filter(Status == status) %>% 
-    dplyr::select(-Status) %>% 
+    dplyr::filter(Status == status) %>% 
+    dplyr::select(-c(subject_id, Status)) %>% 
     cor(method = "spearman")
   
 }
 
-# create df of potential regressors
-df_hbox_reg <- df_hbox_impute %>% 
-  dplyr::select(c(Status, `Hematocrit (%)`, `Lactate (mmol/L)`, `[HbO2]`, `[HbO2]α`, `[Hb]`, `[Hb]α`, `HbO2%`, `HbO2% α`, `[HbT]`, `[HbT]α`)) %>% 
-  dplyr::filter(`[Hb]α` < 3)
+# create run correlations of potential regressors
+m_cor_hv <- df_hbox_impute %>% f_calc_cor(status = "HV")
 
-m_cor_hv <- df_hbox_reg %>% f_calc_cor(status = "HV")
+m_cor_um <- df_hbox_impute %>% f_calc_cor(status = "UM")
 
-m_cor_um <- df_hbox_reg %>% f_calc_cor(status = "UM")
-
-m_cor_cm <- df_hbox_reg %>% f_calc_cor(status = "CM")
+m_cor_cm <- df_hbox_impute %>% f_calc_cor(status = "CM")
 
 # correlation matrix
 
@@ -523,7 +471,7 @@ f_plot_cor <- function(mat) {
   
   melt(mat) %>% 
     
-    mutate_if(is.factor, factor, levels = c("Lactate (mmol/L)", "Hematocrit (%)", "[HbO2]", "[Hb]", "HbO2%", "[HbT]", "[HbO2]α", "[Hb]α", "HbO2% α", "[HbT]α")) %>% 
+    mutate_if(is.factor, factor, levels = c("Lactate", "Hematocrit", "avg_Hb_o2sat", "avg_Hb_conc", "Hb_o2sat_second_alpha", "Hb_conc_second_alpha")) %>% 
     
     ggplot(aes(x = X1, y = X2, fill = value, label = round(value, 2))) + 
     geom_tile() +
@@ -558,18 +506,19 @@ f_plot_cor <- function(mat) {
 
 ```
 
-**Figure S1.** Shown are the spearman correlations among variables measured by Oxiplex and their associated alpha values. Red indicates a positive correlation; blue indicates a negative correlation.
+**Figure S1.** Shown are the spearman correlations among hematocrit, lactate, hemoglobin concentration and its alpha, and hemoglobin oxygen saturation and its alpha. Red indicates a positive correlation; blue indicates a negative correlation.
 
 ### Supplementary figure 2: Logistic regression curves of potential regressors
 ```{r fig_s2, fig.height = 12}
 
 # pivot longer and change factor levels
-df_hbox_reg_long <- df_hbox_reg %>% 
-  pivot_longer(2:11, names_to = "variable", values_to = "value") %>% 
-  mutate(variable = factor(variable, levels = c("Lactate (mmol/L)", "Hematocrit (%)", "[HbO2]", "[HbO2]α", "[Hb]", "[Hb]α", "HbO2%", "HbO2% α" ,"[HbT]", "[HbT]α")))
+df_hbox_reg_long <- df_hbox_impute %>% 
+  mutate(Status = as.numeric(ifelse(Status == "CM", 1, 0))) %>% 
+  pivot_longer(3:ncol(.), names_to = "variable", values_to = "value") %>% 
+  mutate(variable = factor(variable, levels = c("Lactate", "Hematocrit", "avg_Hb_o2sat", "avg_Hb_conc", "Hb_o2sat_second_alpha", "Hb_conc_second_alpha")))
 
 # plot as individual regression curves
-df_hbox_reg_long %>% mutate(Status = as.numeric(ifelse(Status == "CM", 1, 0))) %>% 
+df_hbox_reg_long %>% 
   
   ggplot(aes(x = value, y = Status)) +
   geom_point() +
@@ -589,6 +538,6 @@ df_hbox_reg_long %>% mutate(Status = as.numeric(ifelse(Status == "CM", 1, 0))) %
 
 ```
 
-**Figure S2.** Plotted are the individual logistic regression curves of individual variables tested for their discriminatory power between UM and CM. On the y-axis, 1 represents CM while 0 represents UM. A steeper curve indicates higher discriminatory power
+**Figure S2.** Plotted are the individual logistic regression curves of individual variables tested for their discriminatory power between UM and CM. On the y-axis, 1 represents CM while 0 represents UM. A steeper curve indicates higher discriminatory power.
 
 
