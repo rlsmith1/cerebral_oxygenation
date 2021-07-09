@@ -170,7 +170,7 @@
     f_plot_window(l_splits[[11]], 1)
 
     # plot detrended window
-    p_plot_resids <- function(l_resids, window_num) {
+    f_plot_resids <- function(l_resids, window_num) {
       
       l_resids[[window_num]] %>% 
         ggplot(aes(x = Time, y = residuals)) +
@@ -180,7 +180,7 @@
       
     }
     
-    p_plot_resids(l_resids[[11]], 1)
+    f_plot_resids(l_resids[[11]], 1)
     
 
     
@@ -281,8 +281,8 @@
     registerDoParallel()
     
     
-    l_dfa_thc <- 1:length(l_thc_cumsum) %>% purrr::map(~f_dfa(l_thc_cumsum[[.x]], num_of_windows = 10))
-    l_dfa_o2sat <- 1:length(l_o2sat_cumsum) %>% purrr::map(~f_dfa(l_o2sat_cumsum[[.x]], num_of_windows = 10))
+    l_dfa_thc <- 1:length(l_thc_cumsum) %>% purrr::map(~f_dfa(l_thc_cumsum[[.x]], num_of_windows = 20))
+    l_dfa_o2sat <- 1:length(l_o2sat_cumsum) %>% purrr::map(~f_dfa(l_o2sat_cumsum[[.x]], num_of_windows = 20))
     
 
     # save DFA analysis results
@@ -346,6 +346,9 @@
         mutate(alpha = o2sat_alphas, 
                second_alpha = o2sat_second_alpha,
                Status = as.factor(Status))
+      
+      # no break point
+      df_o2sat_dfa[df_o2sat_dfa$second_alpha > 2,]$second_alpha <- df_o2sat_dfa[df_o2sat_dfa$second_alpha > 2,]$alpha
       
 
 
@@ -457,6 +460,7 @@ library(DescTools)
       
     # plot alpha by group
       
+
       # THC
       df_thc_dfa %>% 
         ggplot(aes(x = Status, y = second_alpha)) +
@@ -471,6 +475,7 @@ library(DescTools)
         theme(legend.position = "none")
       
       # test for differences
+      df_thc_dfa %>% group_by(Status) %>% summarise(median = median(second_alpha))
       kruskal.test(second_alpha ~ Status, data = df_thc_dfa)
       DunnTest(second_alpha ~ Status, data = df_thc_dfa)
       
@@ -482,24 +487,29 @@ library(DescTools)
         stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
         
         labs(y = "alpha") +
-        ggtitle("Cerebral tissue hemoglobin concentration alpha") +
+        ggtitle("Cerebral tissue hemoglobin oxygen saturation alpha") +
         
         theme_bw() +
         theme(legend.position = "none")
       
+      
       # test for differences
+      df_o2sat_dfa %>% group_by(Status) %>% summarise(median = median(second_alpha))
       kruskal.test(second_alpha ~ Status, data = df_o2sat_dfa)
       DunnTest(second_alpha ~ Status, data = df_o2sat_dfa)
-      
-      
 
       
+      
+            
 # combine results with average THC for export -----------------------------
 
     load("raw_data.Rdata")
     
     # rejoin number with patient ID
-    df_num_subj <- df_raw_data[,1:2] %>% count(number, subject_id) %>% dplyr::select(-n)
+    df_num_subj <- df_raw_data[,1:2] %>% 
+      count(number, subject_id) %>% 
+      dplyr::select(-n) %>% 
+      dplyr::filter(!(number %in% c(2:5))) # 2 and 3 are follow-ups for patient 1, 4 & 5 are replicates of #6
     
     # average hemoglobin concentration values for each patients
     df_avg_thc <- df_thc_cumsum %>% 
@@ -512,27 +522,34 @@ library(DescTools)
       summarise(avg_Hb_o2sat = mean(sg_filt))
     
     # put everything together
-    df_results <- df_avg_thc %>% 
+    df_results <- df_num_subj %>% 
+      left_join(df_avg_thc, by = "number") %>% 
       left_join(df_thc_dfa, by = c("number", "Status")) %>% 
       dplyr::rename("Hb_conc_overall_alpha" = "alpha", "Hb_conc_second_alpha" = "second_alpha") %>% 
       left_join(df_avg_o2sat, by = c("number", "Status")) %>% 
       left_join(df_o2sat_dfa, by = c("number", "Status")) %>% 
       dplyr::rename("Hb_o2sat_overall_alpha" = "alpha", "Hb_o2sat_second_alpha" = "second_alpha") %>% 
-      left_join(df_num_subj, by = "number") %>% 
-      dplyr::select(c(number, subject_id, everything())) %>% 
-      mutate(Status = factor(Status, levels = c("HV", "UM", "CM")))
-      
-      
-
+      mutate(Status = factor(Status, levels = c("HV", "UM", "CM"))) %>% 
+      dplyr::filter(!is.na(Status))
+    
+    # check patients
+    # df_results$subject_id
+    
+    # remove patients with hemoglobin oxygen saturation less than 20%
+    low_o2sat <- df_results %>% dplyr::filter(avg_Hb_o2sat < 20) %>% .$subject_id
+    df_results[df_results$subject_id %in% low_o2sat,]$avg_Hb_o2sat <- NA
+    
+    # save dfa results to combine with clinical data
     save(df_results, file = "results.Rdata")   
     
     
+
+# save pt 1 for DFA figure example -----------------------------------------------
+
     
-  
+    df_thc_cumsum1 <- df_thc_cumsum %>% dplyr::filter(number == 1)
+    save(df_thc_cumsum1, file = "dfa_example.Rdata")
     
-    
-    
-        
     
     
     
