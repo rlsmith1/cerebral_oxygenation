@@ -14,9 +14,10 @@ output: html_document
 
 ```{r setup, include = FALSE}
 
-knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, comment = "", fig.height = 8, fig.width = 10)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, comment = "", fig.height = 6, fig.width = 10)
 
 library(tidyverse)
+library(DescTools)
 library(janitor)
 library(FSA)
 library(factoextra)
@@ -31,6 +32,8 @@ library(grDevices)
 
 load("glm_model.Rdata")
 load("results.Rdata")
+load("dfa_example.Rdata")
+load("dfa_results.Rdata")
 
 font_import()
 
@@ -135,7 +138,7 @@ df_clinical_res <- df_hbox %>%
 ```
 **Table 1.** A summary of subject information and hematological data. Group patient data presented as median (quartile 1, quartile 3). Note: Sex not recorded for 3 CM patients; Lactate data removed for healthy volunteers due to inconsistent data.
 
-### Figure 1: Visual summary of NIRS variables
+### Figure 1: Cerebral tissue hemoglobin concentration and oxygen saturation 
 
 ```{r fig1}
 
@@ -174,16 +177,16 @@ df_hbox_voi_long %>% dplyr::filter(!(grepl("alpha", variable))) %>%
 
 # hemoglobin concentration
 kruskal.test(avg_Hb_conc ~ Status, data = df_hbox)
-dunnTest(avg_Hb_conc ~ Status, data = df_hbox, method = "bh")
+DescTools::DunnTest(avg_Hb_conc ~ Status, data = df_hbox, method = "BH")
 
 # hemoglobin oxygen saturation
 kruskal.test(avg_Hb_o2sat ~ Status, data = df_hbox)
 
 ```
 
-**Figure 1.** Shown are the variables measured by Oxiplex, plotted by patient status. Cerebral tissue hemoglobin concentration levels were different between cerebral malaria patients and the other two groups, but did not differ between uncomplicated malaria patients and healthy volunteers (Kruskal-Wallis adjusted p-value = 5.00x10^-7^; Dunn Test post-hoc adjusted p-values: CM vs HV = 3.22x10^-6^, CM vs UM = 2.76x10^-4^, HV vs UM = 0.87). Levels of cerebral hemoglobin O~2~ saturation did not differ among groups (Kruskal-Wallis adjusted p-value = 0.28). 
+**Figure 1.** Shown are the variables measured by Oxiplex, plotted by patient status. Cerebral tissue hemoglobin concentration levels were different between cerebral malaria patients and the other two groups, but did not differ between uncomplicated malaria patients and healthy volunteers (Kruskal-Wallis adjusted p-value = 5.0x10^-7^; Dunn Test post-hoc adjusted p-values: CM vs HV = 3.2x10^-6^, CM vs UM = 2.8x10^-4^, HV vs UM = 0.87). Levels of cerebral hemoglobin O~2~ saturation did not differ among groups (Kruskal-Wallis adjusted p-value = 0.47).
 
-### Figure 2: Visual summary of α values associated with NIRS variables
+### Figure 2: Detrended fluctuation analysis results
 
 ```{r fig2}
 
@@ -218,20 +221,20 @@ df_hbox_voi_long %>% dplyr::filter(grepl("second_alpha", variable)) %>%
 
 # hemoglobin concentration alpha
 kruskal.test(Hb_conc_second_alpha ~ Status, data = df_hbox)
-dunnTest(Hb_conc_second_alpha ~ Status, data = df_hbox, method = "bh")
+DescTools::DunnTest(Hb_conc_second_alpha ~ Status, data = df_hbox, method = "BH")
 
 # hemoglobin oxygen saturation alpha
 kruskal.test(Hb_o2sat_second_alpha ~ Status, data = df_hbox)
-dunnTest(Hb_o2sat_second_alpha ~ Status, data = df_hbox, method = "bh")
+DescTools::DunnTest(Hb_o2sat_second_alpha ~ Status, data = df_hbox, method = "BH")
 
 ```
 
-**Figure 2.** Shown are the alpha values associated with the hemoglobin concentration and oxygen saturation signals measured by Oxiplex. Differences among cerebral tissue hemoglobin concentration alpha values were significant by Kruskal-Wallis (adjusted p-value = 1.57x10^-4^), and differences between all groups were significant by post-hoc Dunn Test (adjusted p-values: CM vs HV = 0.03, CM vs UM = 1.65x10^-4^, HV vs UM = 0.04). Cerebral hemoglobin O~2~ saturation alpha values differed between cerebral malaria patients and the other two patient groups (Kruskal-Wallis adjusted p-value = 2.71x10^-5^; Dunn Test post-hoc adjusted p-values: CM vs HV = 5.18x10^-4^, CM vs UM = 4.44x10^-4^, HV vs UM = 0.23). 
+**Figure 2.** Shown are the alpha values associated with the hemoglobin concentration and oxygen saturation signals measured by Oxiplex. Differences among cerebral tissue hemoglobin concentration alpha values were significant by Kruskal-Wallis (adjusted p-value = 7.16x10^-4^), and differences between uncomplicated malaria patients and the other two patient groups were significant by post-hoc Dunn Test (adjusted p-values: CM vs HV = 0.10, CM vs UM = 4.7x10^-4^, HV vs UM = 0.03). Cerebral hemoglobin O~2~ saturation alpha values differed between cerebral malaria patients and the other two patient groups (Kruskal-Wallis adjusted p-value = 4.2x10^-5^; Dunn Test post-hoc adjusted p-values: CM vs HV = 7.5x10^-4^, CM vs UM = 3.5x10^-4^, HV vs UM = 0.32). 
 
 ### Figure 3: Logistic regression model on CM vs UM
 
 #### A. PCA
-```{r fig3a}
+```{r fig3a, fig.height = 8}
 
 # include variables of interest, remove healthy volunteers from analysis
 
@@ -306,17 +309,15 @@ df_pnts <- my_pca$x %>% as_tibble() %>% mutate(group = groups)
 ```{r fig3b_prep, eval = FALSE}
 
 # select [HbT], [HbT] alpha, and hematocrit
-  df_hbox_model <- df_hbox_impute %>% 
-    dplyr::select(c(2,4:5,19:22)) %>% 
-    mutate(`1/10 * [HbT]α` = `[HbT]α`/10, `[HbT] (nM)` = `[HbT]`/1000) %>% 
-    dplyr::select(-c(`[HbT]α`, `[HbT]`)) %>% 
-    mutate(Status = as.factor(ifelse(Status == "CM", 1, 0))) %>% 
-    
-    dplyr::select(-c(`HbO2%`, `HbO2% α`, `Lactate (mmol/L)`))
+  df_hbox_model <- df_hbox_log_reg %>% 
+    dplyr::select(c(Status, Hematocrit, avg_Hb_conc, Hb_conc_second_alpha)) %>% 
+    mutate(`1/10_Hb_conc_alpha` = Hb_conc_second_alpha*0.1, avg_Hb_conc_nm = avg_Hb_conc/1000) %>% 
+    dplyr::select(-c(Hb_conc_second_alpha, avg_Hb_conc)) %>% 
+    mutate(Status = as.factor(ifelse(Status == "CM", 1, 0))) 
 
 # resample
 set.seed(234)
-hbox_boot <- bootstraps(df_hbox_model, times = 1000)
+hbox_boot <- bootstraps(df_hbox_model, strata = Status, times = 1000)
 
 # recipe
 hbox_rec <- recipe(Status ~ ., data = df_hbox_model) %>% 
@@ -353,7 +354,7 @@ save(glm_res, hbox_final, file = "glm_model.Rdata")
 
 ```   
 
-```{r fig3b_plot}
+```{r fig3b_plot, fig.height = 8}
 
 final_res_conf_mat <- glm_res %>% 
   conf_mat_resampled() %>% 
@@ -407,10 +408,10 @@ collect_metrics(glm_res) %>%
 
 hbox_final %>% 
   tidy(exponentiate = TRUE) %>% 
-  mutate(p.value = as.character(p.value)) %>% 
-  mutate_if(is.numeric, round, 2) %>% 
-  mutate(p.value = as.numeric(p.value)) %>% 
-  mutate(p.value = scientific(p.value, digits = 3)) %>% 
+  mutate(estimate = ifelse(estimate < 10^-2, scientific(estimate, digits = 3), round(estimate, 2))) %>% 
+  mutate(p.value = scientific(p.value, digits = 3),
+         std.error = round(std.error, 2),
+         statistic = round(statistic, 2)) %>% 
   dplyr::rename("Term" = "term", "Odds ratio" = "estimate", "Standard error" = "std.error", 
                 "Statistic" = "statistic", "p-value" = "p.value") %>% 
   
@@ -422,15 +423,16 @@ hbox_final %>%
 **Table 2.** Evaluation of the best logistic regression model select from 1000.
 
 
-### Figure 4: Relationships among hemoglobin concentration, hemoglobin concentration alpha, and hematocrit
-```{r fig4}
+### Figure 4: Relationships among hemoglobin concentration and hematocrit
+```{r fig4, fig.height = 8}
 
-df_hbox_impute %>% filter(Status != "HV") %>% 
+df_hbox %>% filter(Status != "HV") %>% 
   
-  ggplot(aes(x = `[HbT]`, y = `Hematocrit (%)`)) +
-  geom_point(aes(color = Status, size = `[HbT]α`), alpha = 0.7) +
+  ggplot(aes(x = avg_Hb_conc, y = Hematocrit)) +
+  geom_point(aes(color = Status), alpha = 0.7, size = 3) +
   
-  xlab("[HbT] (μM)") +
+  xlab("Hemoglobin concentration (μM)") +
+  ylab("Hematocrit (%)") +
 
   theme_bw() +
   theme(text = element_text(family = "Arial"),
@@ -539,5 +541,149 @@ df_hbox_reg_long %>%
 ```
 
 **Figure S2.** Plotted are the individual logistic regression curves of individual variables tested for their discriminatory power between UM and CM. On the y-axis, 1 represents CM while 0 represents UM. A steeper curve indicates higher discriminatory power.
+
+
+
+### Supplementary figure 3: Detrended fluctuation analysis 
+
+#### A. Pre-processed signal
+```{r fig_s3a}
+
+df_thc_cumsum1 %>% 
+  
+  ggplot(aes(x = Time, y = sg_filt)) +
+  geom_line() +
+  
+  labs(y = "Hemoglobin concentration (μM)", x = "Time (s)") +
+  ggtitle("Pre-processed signal") +
+  theme_bw() +
+  theme(text = element_text(family = "Arial"),
+        axis.text = element_text(size = 20),
+        axis.title = element_text(size = 25),
+        legend.text = element_text(size = 15),
+        legend.title = element_text(size = 20))
+
+
+```
+
+#### B. Cumulative sum
+```{r fig_s3b}
+
+df_thc_cumsum1 %>% 
+  
+  ggplot(aes(x = Time, y = cumsum)) +
+  geom_line() +
+  geom_vline(xintercept = 1201, lty = 2, color = "black") +
+  geom_vline(xintercept = 1210, lty = 2, color = "black") +
+  
+  labs(y = "Cumulative sum", x = "Time (s)") +
+  ggtitle("Cumulative signal") +
+  theme_bw() +
+  theme(text = element_text(family = "Arial"),
+        axis.text = element_text(size = 20),
+        axis.title = element_text(size = 25),
+        legend.text = element_text(size = 15),
+        legend.title = element_text(size = 20))
+
+```
+
+#### C. Window detrend
+```{r fig_s3c, fig.show = "hold", out.width = "50%"}
+
+fit <- lm(cumsum ~ Time, data = df_thc_cumsum1 %>% dplyr::filter(Time > 1201 & Time < 1210))
+
+# Window 
+df_thc_cumsum1 %>% dplyr::filter(Time > 1201 & Time < 1210) %>% 
+  
+  ggplot(aes(x = Time, y = cumsum)) +
+  geom_line(size = 2) +
+  geom_abline(intercept = coef(fit)[1], slope = coef(fit)[2], color = "black", lty = 2, size = 2) +
+  
+  labs(y = "Cumulative sum", x = "Time (s)") +
+  ggtitle("Cumulative signal") +
+  theme_bw() +
+  theme(text = element_text(family = "Arial"),
+        axis.text = element_text(size = 20),
+        axis.title = element_text(size = 25),
+        legend.text = element_text(size = 15),
+        legend.title = element_text(size = 20),
+        title = element_text(size = 25))
+
+
+# Detrended
+df_thc_cumsum1 %>% dplyr::filter(Time > 1201 & Time < 1210) %>% 
+  
+  ggplot(aes(x = Time, y = fit$residuals)) +
+  geom_line(size = 2) +
+  geom_hline(yintercept = 0, color = "black", lty = 2, size = 2) +
+  
+  labs(y = "", x = "Time (s)") +
+  ggtitle("Detrended cumulative signal") +
+  theme_bw() +
+  theme(text = element_text(family = "Arial"),
+        axis.text = element_text(size = 20),
+        axis.title = element_text(size = 25),
+        legend.text = element_text(size = 15),
+        legend.title = element_text(size = 20),
+        title = element_text(size = 25))
+
+
+
+```
+
+#### D. Results plot
+```{r fig_s3d}
+
+# find slope of segmented line
+library(segmented)
+df1 <- l_dfa_thc[[1]][[1]] %>% mutate(log10_avg_fluct = log10(avg_fluctuation), log10_window_size = log10(window_size))
+fit1 <- lm(log10_avg_fluct ~ log10_window_size, data = df1) 
+segfit1 <- segmented(fit1)
+slopes1 <- coef(segfit1) # the coefficients are the differences in slope in comparison to the previous slope
+
+# first line: 
+#y = b0 + b1*x; y = intercept1 + slope1 * x
+
+# second line:
+# y = c0 + c1*x; y = intercept2 + slope2 * x
+
+# At the breakpoint (break1), the segments b and c intersect: b0 + b1*x = c0 + c1*x
+b0 <- slopes1[[1]]
+b1 <- slopes1[[2]]
+
+c1 <- slopes1[[2]] + slopes1[[3]]
+break1 <- segfit1$psi[[2]]
+
+# Solve for c0 (intercept of second segment):
+c0 <- b0 + b1 * break1 - c1 * break1
+
+df1 %>% 
+  
+  ggplot(aes(x = log10_window_size, y = log10_avg_fluct)) +
+  geom_point(size = 3, shape = 1) +
+  geom_abline(intercept = c0, slope = c1, color = "black", lty = 2) +
+  annotate("text", x = -0.5, y = 2, label = paste0("alpha = ", round(c1, 2)), size = 8) +
+  
+  labs(x = "log10(window length)", y = "log10(average fluctuation)") +
+  ggtitle("DFA results") +
+  
+  theme_bw() +
+  theme(text = element_text(family = "Arial"),
+        axis.text = element_text(size = 20),
+        axis.title = element_text(size = 25),
+        legend.text = element_text(size = 15),
+        legend.title = element_text(size = 20))
+
+```
+
+
+
+
+
+
+
+
+
+
 
 
