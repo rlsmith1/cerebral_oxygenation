@@ -58,13 +58,10 @@
     left_join(df_results, by = c("subject_id", "Status")) %>% 
     dplyr::select(-number)
 
-  
-  
+
 # filter  ---------------------------------------------------------
 
-  # remove patients with negative o2 sat - run DFA, but do not include these average values in the plots
-  df_master$avg_Hb_o2sat[df_master$avg_Hb_o2sat < 0] <- NA
-  
+
 
   # Remove patients labeled as "UM" that instead meet the WHO criteria for severe malaria
   
@@ -74,10 +71,22 @@
     # All UM patients have hematocrit > 15%
     # df_master %>% dplyr::filter(Status == "UM"  & Hematocrit <= 15)
   
+  # remove duplicate patient ID
+  df_master <- df_master %>% unique()
+  
 
 
+# double check ------------------------------------------------------------
+
+
+  # any duplicated patients?
+  df_master %>% count(subject_id) %>% count(n)
+  
+  # any negative Hb o2 sat?
+  df_master %>% dplyr::filter(avg_Hb_o2sat < 20)
+  
+  
 # export as csv -----------------------------------------------------------
-
 
   write.csv(df_master, file = "Data/master_datatable.csv")
     
