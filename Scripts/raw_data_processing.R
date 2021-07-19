@@ -7,12 +7,13 @@
   library(purrr)
   
 
-  # read in
+  # get names
   my_files <- list.files(path = "Data/Raw data/", pattern = "*.txt", full.names = TRUE, recursive = FALSE)
   
   # remove duplicate patient files (CM 14, 15, 16, 24part2)
   my_files <- my_files[!grepl("part2.txt|TM0014CM01.txt|TM0015CM01.txt|TM0016CM01.txt", my_files)]
   
+  # read in
   l_raw_data <- 1:length(my_files) %>% 
     purrr::map(~read.delim2(file = my_files[.x], header = FALSE, sep = "\t") %>% as_tibble()) 
   
@@ -107,7 +108,7 @@
 
 # remove blips (manual) ------------------------------------------------------------
 
-my_files[26]
+
 # remove signals that aren't at least 200s  
   sampling_rate <- 1/.02
   df_raw_data %>% group_by(number) %>% count() %>% dplyr::filter(n < 200*sampling_rate) # 21 and 26 not long enough
@@ -136,7 +137,6 @@ my_files[26]
   }
   
 # segment signal function
-  
   f_segment_signal <- function(df, num, start, end) {
     
     df %>% 

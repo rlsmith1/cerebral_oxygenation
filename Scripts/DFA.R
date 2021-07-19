@@ -293,7 +293,7 @@
 
 # second order detrending --------------------------------------------------
 
-## separately compute scaling exponents for short-length vs long-length windws, for short-range and long-range correlations of the time series (Seleznov et al 2019)
+## separately compute scaling exponents for short-length vs long-length windows, for short-range and long-range correlations of the time series (Seleznov et al 2019)
     
     library(segmented)
     
