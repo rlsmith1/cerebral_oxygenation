@@ -107,7 +107,7 @@
 
 # remove blips (manual) ------------------------------------------------------------
 
-
+my_files[26]
 # remove signals that aren't at least 200s  
   sampling_rate <- 1/.02
   df_raw_data %>% group_by(number) %>% count() %>% dplyr::filter(n < 200*sampling_rate) # 21 and 26 not long enough
@@ -651,7 +651,7 @@
   df_thc46$THC %>% var(na.rm = TRUE)
   
   # O2 sat
-  df_raw_data %>% f_plot_o2sat(46) ### signal too noisy
+  df_raw_data %>% f_plot_o2sat(46) ### signal very noisy
   df_o2sat46 <- df_raw_data %>% dplyr::select(-THC) %>% f_segment_signal(46, 500, 2000)
   df_o2sat46$O2_sat %>% var(na.rm = TRUE)
 
