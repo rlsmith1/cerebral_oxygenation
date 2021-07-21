@@ -308,6 +308,8 @@ df_pnts <- my_pca$x %>% as_tibble() %>% mutate(group = groups)
 
 ```{r fig3b_prep, eval = FALSE}
 
+library(themis)
+
 # select [HbT], [HbT] alpha, and hematocrit
   df_hbox_model <- df_hbox_log_reg %>% 
     dplyr::select(c(Status, Hematocrit, avg_Hb_conc, Hb_conc_second_alpha)) %>% 
@@ -322,7 +324,8 @@ hbox_boot <- bootstraps(df_hbox_model, strata = Status, times = 1000)
 # recipe
 hbox_rec <- recipe(Status ~ ., data = df_hbox_model) %>% 
   step_BoxCox(all_predictors()) %>% 
-  step_nzv(all_predictors())
+  step_nzv(all_predictors()) %>% 
+  step_smote(Status) # upsample to deal with unbalanced sample sizes
 
 # create workflow
 hbox_wf <- workflow() %>% add_recipe(hbox_rec)
@@ -360,15 +363,16 @@ final_res_conf_mat <- glm_res %>%
   conf_mat_resampled() %>% 
   mutate(Prediction = ifelse(Prediction == 1, "CM", "UM")) %>% 
   mutate(Truth = ifelse(Truth == 1, "CM", "UM"))
-  
+
+total_true_UM <- final_res_conf_mat %>% dplyr::filter(Truth == "UM") %>% .$Freq %>% sum()
+total_true_CM <- final_res_conf_mat %>% dplyr::filter(Truth == "CM") %>% .$Freq %>% sum()
+
 final_res_conf_mat %>% 
-  group_by(Truth) %>% 
-  summarise(total_true = sum(Freq)) %>% 
-  right_join(final_res_conf_mat) %>% 
-  mutate(`Percent occurence` = round(Freq/total_true*100, 2)) %>% 
+  mutate(total_true = ifelse(Truth == "CM", Freq/total_true_CM, Freq/total_true_UM)) %>% 
+  mutate(`Percent occurrence` = round(total_true*100, 2)) %>% 
 
   # plot
-  ggplot(aes(x = Truth, y = Prediction, fill = `Percent occurence`, label = `Percent occurence`)) +
+  ggplot(aes(x = Truth, y = Prediction, fill = `Percent occurrence`, label = `Percent occurrence`)) +
   geom_tile() +
   geom_text(size = 6) +
   scale_fill_gradient2(low = "#4575b4", high = "#d73027") +
