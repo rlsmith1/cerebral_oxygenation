@@ -46,8 +46,8 @@ font_import()
   df_hbox <- read.csv("Data/master_datatable.csv") %>% 
     as_tibble() %>% 
     dplyr::select(-1) %>% 
-    mutate(Status = factor(Status, levels = c("HV", "UM", "CM")))
-
+    mutate(Status = ifelse(Status == "HV", "HC", Status)) %>% 
+    mutate(Status = factor(Status, levels = c("HC", "UM", "CM")))
 
 # pivot long
 
@@ -125,12 +125,15 @@ df_clinical_res <- df_hbox %>%
   add_row(df_sex, .before = 2) %>% 
   
   dplyr::rename(" " = "variable",
-                "Healthy volunteers" = "HV",
-                "Uncomplicated malaria patients" = "UM",
-                "Cerebral malaria patients" = "CM")
+                "Healthy children" = "HC",
+                "Uncomplicated malaria" = "UM",
+                "Cerebral malaria" = "CM")
 
-  # remove lactate data for HV
-  df_clinical_res[11,]$`Healthy volunteers` <- "--"
+  # remove lactate data for HC
+  df_clinical_res[11,]$`Healthy children` <- "--"
+  
+  # export to CSV
+  # write.csv(df_clinical_res, file = "Outputs/table_1.csv")
   
   # create kable df
   df_clinical_res %>% knitr::kable(align = rep('c', 4))
@@ -147,17 +150,21 @@ df_clinical_res <- df_hbox %>%
 voi <- df_results %>% colnames() %>% .[4:9] 
 
 # select from the long df
-df_hbox_voi_long <- df_hbox_long %>% dplyr::filter(variable %in% voi)
+df_hbox_voi_long <- df_hbox_long %>% 
+  dplyr::filter(variable %in% voi) %>% 
+  mutate(variable = factor(variable, levels = c("avg_Hb_o2sat", "avg_Hb_conc",
+                                                "Hb_o2sat_overall_alpha", "Hb_conc_overall_alpha",
+                                                "Hb_o2sat_second_alpha", "Hb_conc_second_alpha")))
 
 # create color vector
-my_col <- c("CM" = "#00BFC4", "HV" = "#7CAE00", "UM" = "#F8766D")
+my_col <- c("CM" = "#00BFC4", "HC" = "#7CAE00", "UM" = "#F8766D")
 
 # plot
 df_hbox_voi_long %>% dplyr::filter(!(grepl("alpha", variable))) %>%
   
   ggplot(aes(x = Status, y = value)) +
   geom_violin(aes(color = Status)) +
-  geom_jitter(position = position_jitter(0.2), shape = 1) +
+  geom_jitter(position = position_jitter(0.2), shape = 1, size = 2) +
   stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
   facet_wrap(~variable, scales = "free_y") +
   
@@ -184,7 +191,7 @@ kruskal.test(avg_Hb_o2sat ~ Status, data = df_hbox)
 
 ```
 
-**Figure 1.** Shown are the variables measured by Oxiplex, plotted by patient status. Cerebral tissue hemoglobin concentration levels were different between cerebral malaria patients and the other two groups, but did not differ between uncomplicated malaria patients and healthy volunteers (Kruskal-Wallis adjusted p-value = 5.0x10^-7^; Dunn Test post-hoc adjusted p-values: CM vs HV = 3.2x10^-6^, CM vs UM = 2.8x10^-4^, HV vs UM = 0.87). Levels of cerebral hemoglobin O~2~ saturation did not differ among groups (Kruskal-Wallis adjusted p-value = 0.47).
+**Figure 1.** Shown are the variables measured by Oxiplex, plotted by patient status. Cerebral tissue hemoglobin concentration levels were different between cerebral malaria patients and the other two groups, but did not differ between uncomplicated malaria patients and healthy volunteers (Kruskal-Wallis adjusted p-value = 5.0x10^-7^; Dunn Test post-hoc adjusted p-values: CM vs HC = 3.2x10^-6^, CM vs UM = 2.8x10^-4^, HC vs UM = 0.87). Levels of cerebral hemoglobin O~2~ saturation did not differ among groups (Kruskal-Wallis adjusted p-value = 0.47).
 
 ### Figure 2: Detrended fluctuation analysis results
 
@@ -194,7 +201,7 @@ df_hbox_voi_long %>% dplyr::filter(grepl("second_alpha", variable)) %>%
   
   ggplot(aes(x = Status, y = value)) +
   geom_violin(aes(color = Status)) +
-  geom_jitter(position = position_jitter(0.2), shape = 1) +
+  geom_jitter(position = position_jitter(0.2), shape = 1, size = 2) +
   stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
   
   geom_hline(yintercept = 0.45, alpha = 0.4, lty = 2) +
@@ -236,9 +243,10 @@ DescTools::DunnTest(Hb_o2sat_second_alpha ~ Status, data = df_hbox, method = "BH
 #### A. PCA
 ```{r fig3a, fig.height = 8}
 
-# include variables of interest, remove healthy volunteers from analysis
+# include variables of interest, remove healthy children from analysis
 
-df_hbox_voi <- df_hbox %>% dplyr::select(c("subject_id", "Status", "Hematocrit", "Lactate", "avg_Hb_conc", "Hb_conc_second_alpha", "avg_Hb_o2sat", "Hb_o2sat_second_alpha")) 
+df_hbox_voi <- df_hbox %>% 
+  dplyr::select(c("subject_id", "Status", "Hematocrit", "Lactate", "avg_Hb_conc", "Hb_conc_second_alpha", "avg_Hb_o2sat", "Hb_o2sat_second_alpha"))
 
 # impute missing data with median by group
   f_impute <- function(x, na.rm = TRUE) (replace(x, is.na(x), median(x, na.rm = na.rm)))
@@ -249,7 +257,7 @@ df_hbox_voi <- df_hbox %>% dplyr::select(c("subject_id", "Status", "Hematocrit",
     ungroup() 
 
 # remove healthy volunteers for logistic regression analysis
-df_hbox_log_reg <- df_hbox_impute %>% dplyr::filter(Status != "HV")
+df_hbox_log_reg <- df_hbox_impute %>% dplyr::filter(Status != "HC")
 
 # convert tibble to df
 df_hbox_voi_df <- df_hbox_log_reg %>% 
@@ -393,7 +401,7 @@ final_res_conf_mat %>%
 #### A. Model metrics
 ```{r table2a}
 
-collect_metrics(glm_res) %>% 
+table2a <- collect_metrics(glm_res) %>% 
   dplyr::select(.metric, mean, std_err) %>% 
   mutate(mean = mean*100, std_err = std_err*100) %>% 
   mutate(Metric = c("Accuracy", "ROC AUC", "Sensitivity", "Specificity")) %>% 
@@ -401,16 +409,16 @@ collect_metrics(glm_res) %>%
   
   dplyr::rename("Mean" = "mean", "Standard error" = "std_err") %>% 
   mutate_if(is.numeric, round, 2) %>% 
-  as.data.frame() %>%
+  as.data.frame()
     
-  knitr::kable(align = rep('c', 4))
+table2a %>% knitr::kable(align = rep('c', 4))
 
 ```
 
 #### B. Coefficients
 ```{r table2b}
 
-hbox_final %>% 
+table2b <- hbox_final %>% 
   tidy(exponentiate = TRUE) %>% 
   mutate(estimate = ifelse(estimate < 10^-2, scientific(estimate, digits = 3), round(estimate, 2))) %>% 
   mutate(p.value = scientific(p.value, digits = 3),
@@ -418,11 +426,18 @@ hbox_final %>%
          statistic = round(statistic, 2)) %>% 
   dplyr::rename("Term" = "term", "Odds ratio" = "estimate", "Standard error" = "std.error", 
                 "Statistic" = "statistic", "p-value" = "p.value") %>% 
-  
-  as.data.frame() %>%
-  knitr::kable(align = rep('c', 5))
+  as.data.frame() 
+
+table2b %>% knitr::kable(align = rep('c', 5))
 
 ```
+
+```{r export_table2, eval = FALSE}
+
+list(table2a, table2b) %>% write.csv("Outputs/table_2.csv")
+
+```
+
 
 **Table 2.** Evaluation of the best logistic regression model select from 1000.
 
@@ -430,7 +445,7 @@ hbox_final %>%
 ### Figure 4: Relationships among hemoglobin concentration and hematocrit
 ```{r fig4, fig.height = 8}
 
-df_hbox %>% filter(Status != "HV") %>% 
+df_hbox %>% filter(Status != "HC") %>% 
   
   ggplot(aes(x = avg_Hb_conc, y = Hematocrit)) +
   geom_point(aes(color = Status), alpha = 0.7, size = 3) +
@@ -464,7 +479,7 @@ f_calc_cor <- function(df, status) {
 }
 
 # create run correlations of potential regressors
-m_cor_hv <- df_hbox_impute %>% f_calc_cor(status = "HV")
+m_cor_hv <- df_hbox_impute %>% f_calc_cor(status = "HC")
 
 m_cor_um <- df_hbox_impute %>% f_calc_cor(status = "UM")
 
@@ -502,11 +517,11 @@ f_plot_cor <- function(mat) {
   p_leg <- m_cor_hv %>% f_plot_cor() %>% get_legend()
   
   # create plots
-  m_cor_hv %>% f_plot_cor() + ggtitle("Healthy volunteers") + theme(legend.position = "none")
+  m_cor_hv %>% f_plot_cor() + ggtitle("Healthy chilren") + theme(legend.position = "none")
   
-  m_cor_um %>% f_plot_cor() + ggtitle("Uncomplicated malaria patients") + theme(legend.position = "none")
+  m_cor_um %>% f_plot_cor() + ggtitle("Uncomplicated malaria") + theme(legend.position = "none")
   
-  m_cor_cm %>% f_plot_cor() + ggtitle("Cerebral malaria patients") + theme(legend.position = "none")
+  m_cor_cm %>% f_plot_cor() + ggtitle("Cerebral malaria") + theme(legend.position = "none")
   
   as_ggplot(p_leg)
 

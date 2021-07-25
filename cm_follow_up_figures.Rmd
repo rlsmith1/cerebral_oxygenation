@@ -57,12 +57,12 @@ o2sat_fu_pval <- wilcox.test(value ~ follow_up, data = df_o2sat_compare) %>% .$p
 df_results_all_plot %>% 
   dplyr::filter(!grepl("avg|second", variable)) %>% 
   mutate(measurement = ifelse(grepl("conc", variable), "THC", "O2_sat")) %>% 
-  mutate(measurement = factor(measurement, levels = c("THC", "O2_sat"))) %>% 
+  mutate(measurement = factor(measurement, levels = c("O2_sat", "THC"))) %>% 
   mutate(pvals = ifelse(measurement == "THC", round(thc_fu_pval, 3), round(o2sat_fu_pval, 3))) %>% 
   
   ggplot(aes(x = follow_up, y = value)) +
   geom_violin(aes(color = follow_up)) +
-  geom_point(shape = 1) +
+  geom_point(shape = 1, size = 2) +
   stat_summary(fun = "median", geom = "crossbar", aes(x = follow_up, color = follow_up), size = 0.2, width = 0.5) +
   geom_path(aes(group = subject_id), lty = 2, alpha = 0.7) +
   
