@@ -28,6 +28,7 @@ df_results_all <- df_results %>%
 
 # reorganize for plotting
 df_results_all_plot <- df_results_all %>% 
+  dplyr::select(-visit) %>% 
   dplyr::filter(subject_id %in% df_fu_results$subject_id) %>% 
   pivot_longer(cols = 4:ncol(.), names_to = "variable", values_to = "value") %>% 
   mutate(follow_up = ifelse(grepl("fu", variable), "follow-up", "initial visit")) %>% 
@@ -35,30 +36,84 @@ df_results_all_plot <- df_results_all %>%
 
 # descriptive statistics
 
-# THC
-df_thc_compare <- df_results_all_plot %>% 
-  dplyr::filter(variable %in% c("Hb_conc_overall_alpha", "Hb_conc_fu_alpha"))
 
-thc_fu_pval <- wilcox.test(value ~ follow_up, data = df_thc_compare) %>% .$p.value
+  # averages
 
-# O2 sat
-df_o2sat_compare <- df_results_all_plot %>% 
-  dplyr::filter(variable %in% c("Hb_o2sat_overall_alpha", "Hb_o2sat_fu_alpha"))
+    # THC
+    df_thc_compare <- df_results_all_plot %>% 
+      dplyr::filter(variable %in% c("avg_Hb_conc", "avg_Hb_conc_fu"))
+    
+    thc_fu_pval <- wilcox.test(value ~ follow_up, data = df_thc_compare) %>% .$p.value
+    
+    # O2 sat
+    df_o2sat_compare <- df_results_all_plot %>% 
+      dplyr::filter(variable %in% c("avg_Hb_o2sat", "avg_Hb_o2sat_fu"))
+    
+    o2sat_fu_pval <- wilcox.test(value ~ follow_up, data = df_o2sat_compare) %>% .$p.value
 
-o2sat_fu_pval <- wilcox.test(value ~ follow_up, data = df_o2sat_compare) %>% .$p.value
 
+  # alphas
+
+    # THC
+    df_thc_alpha_compare <- df_results_all_plot %>% 
+      dplyr::filter(variable %in% c("Hb_conc_overall_alpha", "Hb_conc_fu_alpha"))
+    
+    thc_alpha_fu_pval <- wilcox.test(value ~ follow_up, data = df_thc_alpha_compare) %>% .$p.value
+    
+    # O2 sat
+    df_o2sat_alpha_compare <- df_results_all_plot %>% 
+      dplyr::filter(variable %in% c("Hb_o2sat_overall_alpha", "Hb_o2sat_fu_alpha"))
+    
+    o2sat_alpha_fu_pval <- wilcox.test(value ~ follow_up, data = df_o2sat_alpha_compare) %>% .$p.value
+
+    
 ```
 
 ### Figure 5: Cerebral malaria patient follow-up visits
 
-```{r fig5}
+#### A: Cerebral hemoglobin oxygen saturation & hemolgobin concentration
+```{r fig5a}
 
-# plot O2 sat
 df_results_all_plot %>% 
-  dplyr::filter(!grepl("avg|second", variable)) %>% 
+  
+  dplyr::filter(grepl("avg_Hb", variable)) %>% 
   mutate(measurement = ifelse(grepl("conc", variable), "THC", "O2_sat")) %>% 
   mutate(measurement = factor(measurement, levels = c("O2_sat", "THC"))) %>% 
   mutate(pvals = ifelse(measurement == "THC", round(thc_fu_pval, 3), round(o2sat_fu_pval, 3))) %>% 
+  
+  ggplot(aes(x = follow_up, y = value)) +
+  geom_violin(aes(color = follow_up)) +
+  geom_point(shape = 1, size = 2) +
+  stat_summary(fun = "median", geom = "crossbar", aes(x = follow_up, color = follow_up), size = 0.2, width = 0.5) +
+  geom_path(aes(group = subject_id), lty = 2, alpha = 0.7) +
+  
+  geom_segment(aes(x = 1, y = 1.4, xend = 2, yend = 1.4), size = 0.3) +
+  geom_segment(aes(x = 1, y = 1.4, xend = 1, yend = 1.35), size = 0.3) +
+  geom_segment(aes(x = 2, y = 1.4, xend = 2, yend = 1.35), size = 0.3) +
+  geom_text(x = 1.5, y = 1.43, aes(label = paste0("p = ", pvals))) +
+  
+  facet_wrap(~measurement, scales = "free_y") +
+  labs(y = "", x = "") +
+
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(text = element_text(family = "Arial"),
+        strip.text = element_text(size = 15),
+        axis.title = element_text(size = 15),
+        axis.text = element_text(size = 15),
+        legend.position = "none")
+
+```
+
+#### B: Cerebral hemoglobin oxygen saturation & hemolgobin concentration alphas
+```{r fig5b} 
+
+df_results_all_plot %>% 
+  
+  dplyr::filter(!grepl("avg|second", variable)) %>% 
+  mutate(measurement = ifelse(grepl("conc", variable), "THC", "O2_sat")) %>% 
+  mutate(measurement = factor(measurement, levels = c("O2_sat", "THC"))) %>% 
+  mutate(pvals = ifelse(measurement == "THC", round(thc_alpha_fu_pval, 3), round(o2sat_alpha_fu_pval, 3))) %>% 
   
   ggplot(aes(x = follow_up, y = value)) +
   geom_violin(aes(color = follow_up)) +
@@ -85,8 +140,6 @@ df_results_all_plot %>%
         legend.position = "none")
 
 ```
-
-
 
 
 

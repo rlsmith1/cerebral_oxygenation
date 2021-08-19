@@ -27,8 +27,6 @@
 
 
     
-    
-    
 
 # format raw data ---------------------------------------------------------
 
@@ -38,15 +36,27 @@
     library(zoo)
     
     # format to just THC and o2 sat in workable form
-    l_follow_up <- 1:length(l_follow_up) %>% 
+    l_follow_up_formatted <- 3:length(l_follow_up) %>% 
       
       purrr::map(~mutate(l_follow_up[[.x]], subject_id = l_names[[.x]])) %>% 
       purrr::map(~dplyr::filter(.x, !grepl("Patient|Data|[R|r]aw", V1))) %>% 
-      purrr::map(~dplyr::select(.x, c(ncol(.x), 2:4))) %>% 
-      purrr::map(~dplyr::rename(.x, "Time" = "V2", "O2_sat" = "V3", "THC" = "V4")) %>% 
-      purrr::map(~mutate(.x, Time = as.numeric(Time))) %>% 
-      purrr::map(~mutate(.x, THC = as.numeric(THC))) %>% 
-      purrr::map(~mutate(.x, O2_sat = as.numeric(O2_sat)))
+      purrr::map(~dplyr::select(.x, c(ncol(.x), 2, 7:8))) %>% 
+      purrr::map(~dplyr::rename(.x, "Time" = "V2", "O2_sat" = "V7", "THC" = "V8")) %>% 
+      purrr::map(~mutate(.x, Time = as.numeric(as.character(Time)))) %>% 
+      purrr::map(~mutate(.x, THC = as.numeric(as.character(THC)))) %>% 
+      purrr::map(~mutate(.x, O2_sat = as.numeric(as.character(O2_sat))))
+    
+    # append data from TM0001 (data in different columns)
+    df1 <- l_follow_up[[1]] %>% 
+      mutate(subject_id = l_names[[1]]) %>% 
+      dplyr::select(c(ncol(.), 2:4)) %>% 
+      dplyr::rename("Time" = "V2", "O2_sat" = "V3", "THC" = "V4") %>% 
+      dplyr::filter(!grepl("Time", Time)) %>% 
+      mutate(Time = as.numeric(as.character(Time)), 
+             THC = as.numeric(as.character(THC)),
+             O2_sat = as.numeric(as.character(O2_sat)))
+    
+    l_follow_up <- append(list(df1), l_follow_up_formatted)
     
     # number patients
     l_follow_up <- 1:length(l_follow_up) %>% 
@@ -61,7 +71,7 @@
       dplyr::select(c(number, subject_id, Status, everything()))
     
 
-
+    
 # remove blips ------------------------------------------------------------
 
     
@@ -112,19 +122,19 @@
       df_o2sat_fu1$O2_sat %>% var(na.rm = TRUE)
       
       
-  # TM0001 (03)
+  # TM0005
       # THC
       df_follow_up %>% f_plot_thc(2)
-      df_thc_fu2 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(2, 800, 2000) %>% dplyr::filter(THC > 0)
+      df_thc_fu2 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(2, 0, 2000)
       df_thc_fu2$THC %>% var(na.rm = TRUE)
       
       # O2 sat
-      df_o2sat_fu2 %>% f_plot_o2sat(2)
-      df_o2sat_fu2 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(2, 800, 2000) %>% dplyr::filter(O2_sat > -500 & O2_sat < 500)
+      df_follow_up %>% f_plot_o2sat(2)
+      df_o2sat_fu2 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(2, 0, 1200)
       df_o2sat_fu2$O2_sat %>% var(na.rm = TRUE)
       
       
-  # TM0005
+  # TM0006
       # THC
       df_follow_up %>% f_plot_thc(3)
       df_thc_fu3 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(3, 0, 2000)
@@ -132,174 +142,179 @@
       
       # O2 sat
       df_follow_up %>% f_plot_o2sat(3)
-      df_o2sat_fu3 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(3, 0, 2000)
+      df_o2sat_fu3 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(3, 0, 1200)
       df_o2sat_fu3$O2_sat %>% var(na.rm = TRUE)
-      
-      
-  # TM0006
-      # THC
-      df_follow_up %>% f_plot_thc(4)
-      df_thc_fu4 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(4, 0, 2000)
-      df_thc_fu4$THC %>% var(na.rm = TRUE)
-      
-      # O2 sat
-      df_follow_up %>% f_plot_o2sat(4)
-      df_o2sat_fu4 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(4, 0, 2000)
-      df_o2sat_fu4$O2_sat %>% var(na.rm = TRUE)
       
       
   # TM0007
       # THC
+      df_follow_up %>% f_plot_thc(4)
+      df_thc_fu4 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(4, 0, 700)
+      df_thc_fu4$THC %>% var(na.rm = TRUE)
+      
+      # O2 sat
+      df_follow_up %>% f_plot_o2sat(4)
+      df_o2sat_fu4 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(4, 0, 1200)
+      df_o2sat_fu4$O2_sat %>% var(na.rm = TRUE)
+  
+      
+  # TM00018
+      # THC
       df_follow_up %>% f_plot_thc(5)
-      df_thc_fu5 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(5, 10, 2000)
+      df_thc_fu5 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(5, 0, 2000)
       df_thc_fu5$THC %>% var(na.rm = TRUE)
       
       # O2 sat
       df_follow_up %>% f_plot_o2sat(5)
-      df_o2sat_fu5 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(5, 10, 2000)
+      df_o2sat_fu5 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(5, 0, 600)
       df_o2sat_fu5$O2_sat %>% var(na.rm = TRUE)
-  
-          
-  # TM00018
-      # THC
-      df_follow_up %>% f_plot_thc(6)
-      df_thc_fu6 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(6, 0, 1150)
-      df_thc_fu6$THC %>% var(na.rm = TRUE)
-      
-      # O2 sat
-      df_follow_up %>% f_plot_o2sat(6)
-      df_o2sat_fu6 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(6, 0, 1150)
-      df_o2sat_fu6$O2_sat %>% var(na.rm = TRUE)
       
       
   # TM00019
       # THC
-      df_follow_up %>% f_plot_thc(7)
-      df_thc_fu7 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(7, 0, 1100)
-      df_thc_fu7$THC %>% var(na.rm = TRUE)
+      df_follow_up %>% f_plot_thc(6)
+      df_thc_fu6 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(6, 200, 1050)
+      df_thc_fu6$THC %>% var(na.rm = TRUE)
       
       # O2 sat
-      df_follow_up %>% f_plot_o2sat(7)
-      df_o2sat_fu7 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(7, 0, 1100)
-      df_o2sat_fu7$O2_sat %>% var(na.rm = TRUE)
+      df_follow_up %>% f_plot_o2sat(6)
+      df_o2sat_fu6 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(6, 130, 1000)
+      df_o2sat_fu6$O2_sat %>% var(na.rm = TRUE)
    
       
   # TM00020
       # THC
-      df_follow_up %>% f_plot_thc(8)
-      df_thc_fu8 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(8, 0, 1000)
-      df_thc_fu8$THC %>% var(na.rm = TRUE)
+      df_follow_up %>% f_plot_thc(7)
+      df_thc_fu7 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(7, 0, 2000)
+      df_thc_fu7$THC %>% var(na.rm = TRUE)
       
       # O2 sat
-      df_follow_up %>% f_plot_o2sat(8)
-      df_o2sat_fu8 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(8, 0, 750)
-      df_o2sat_fu8$O2_sat %>% var(na.rm = TRUE)
+      df_follow_up %>% f_plot_o2sat(7)
+      df_o2sat_fu7 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(7, 0, 850)
+      df_o2sat_fu7$O2_sat %>% var(na.rm = TRUE)
       
       
   # TM00021
       # THC
-      df_follow_up %>% f_plot_thc(9)
-      df_thc_fu9 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(9, 0, 1500)
-      df_thc_fu9$THC %>% var(na.rm = TRUE)
+      df_follow_up %>% f_plot_thc(8)
+      df_thc_fu8 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(8, 0, 900)
+      df_thc_fu8$THC %>% var(na.rm = TRUE)
       
       # O2 sat
-      df_follow_up %>% f_plot_o2sat(9)
-      df_o2sat_fu9 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(8, 0, 500)
-      df_o2sat_fu9$O2_sat %>% var(na.rm = TRUE)
+      df_follow_up %>% f_plot_o2sat(8)
+      df_o2sat_fu8 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(8, 0, 900)
+      df_o2sat_fu8$O2_sat %>% var(na.rm = TRUE)
       
       
   # TM00022
       # THC
-      df_follow_up %>% f_plot_thc(10)
-      df_thc_fu10 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(10, 0, 2000)
-      df_thc_fu10$THC %>% var(na.rm = TRUE)
+      df_follow_up %>% f_plot_thc(9)
+      df_thc_fu9 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(9, 0, 2000)
+      df_thc_fu9$THC %>% var(na.rm = TRUE)
       
       # O2 sat
-      df_follow_up %>% f_plot_o2sat(10)
-      df_o2sat_fu10 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(10, 300, 650) %>% dplyr::filter(O2_sat > -300)
-      df_o2sat_fu10$O2_sat %>% var(na.rm = TRUE)
+      df_follow_up %>% f_plot_o2sat(9)
+      df_o2sat_fu9 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(9, 0, 2000)
+      df_o2sat_fu9$O2_sat %>% var(na.rm = TRUE)
       
       
   # TM00023
       # THC
-      df_follow_up %>% f_plot_thc(11) # signal too noisy
+      df_follow_up %>% f_plot_thc(10)
+      df_thc_fu10 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(10, 0, 900)
+      df_thc_fu10$THC %>% var(na.rm = TRUE)
 
       # O2 sat
-      df_follow_up %>% f_plot_o2sat(11) # signal too noisy
-
+      df_follow_up %>% f_plot_o2sat(10)
+      df_o2sat_fu10 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(10, 0, 900)
+      df_o2sat_fu10$O2_sat %>% var(na.rm = TRUE)
+      
       
   # TM00024
       # THC
-      df_follow_up %>% f_plot_thc(12)
-      df_thc_fu12 <- df_follow_up %>% dplyr::select(-O2_sat) %>% dplyr::filter(number == 12 & THC > 0)
-      df_thc_fu12$THC %>% var(na.rm = TRUE)
+      df_follow_up %>% f_plot_thc(11)
+      df_thc_fu11 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(11, 0, 1000)
+      df_thc_fu11$THC %>% var(na.rm = TRUE)
       
       # O2 sat
-      df_follow_up %>% f_plot_o2sat(12)
-      df_o2sat_fu12 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(12, 1300, 1500) # very noisy signal
-      df_o2sat_fu12$O2_sat %>% var(na.rm = TRUE)
+      df_follow_up %>% f_plot_o2sat(11)
+      df_o2sat_fu11 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(11, 0, 900)
+      df_o2sat_fu11$O2_sat %>% var(na.rm = TRUE)
       
       
   # TM00026
       # THC
-      df_follow_up %>% f_plot_thc(13)
-      df_thc_fu13 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(13, 700, 1200)
-      df_thc_fu13$THC %>% var(na.rm = TRUE)
+      df_follow_up %>% f_plot_thc(12)
+      df_thc_fu12 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(12, 1150, 2000)
+      df_thc_fu12$THC %>% var(na.rm = TRUE)
       
       # O2 sat
-      df_o2sat_fu13 %>% f_plot_o2sat(13) # signal too noisy
-
+      df_follow_up %>% f_plot_o2sat(12)
+      df_o2sat_fu12 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(12, 0, 900)
+      df_o2sat_fu12$O2_sat %>% var(na.rm = TRUE)
+      
       
   # TM00027
       # THC
-      df_follow_up %>% f_plot_thc(14)
-      df_thc_fu14 <- df_follow_up %>% dplyr::select(-O2_sat) %>% dplyr::filter(number == 14 & THC > 5)
-      df_thc_fu14$THC %>% var(na.rm = TRUE)
+      df_follow_up %>% f_plot_thc(13)
+      df_thc_fu13 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(13, 0, 900)
+      df_thc_fu13$THC %>% var(na.rm = TRUE)
       
       # O2 sat
-      df_follow_up %>% f_plot_o2sat(14)
-      df_o2sat_fu14 <- df_follow_up %>% dplyr::select(-THC) %>% dplyr::filter(number == 14 & O2_sat > -500)
-      df_o2sat_fu14$O2_sat %>% var(na.rm = TRUE)
+      df_follow_up %>% f_plot_o2sat(13)
+      df_o2sat_fu13 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(13, 0, 900)
+      df_o2sat_fu13$O2_sat %>% var(na.rm = TRUE)
       
 
   # TM00028
       # THC
-      df_follow_up %>% f_plot_thc(15) # signal too noisy
-
+      df_follow_up %>% f_plot_thc(14)
+      df_thc_fu14 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(14, 1100, 2000)
+      df_thc_fu14$THC %>% var(na.rm = TRUE)
+      
       # O2 sat
-      df_follow_up %>% f_plot_o2sat(15) # signal too noisy
+      df_follow_up %>% f_plot_o2sat(14)
+      df_o2sat_fu14 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(14, 1100, 2000)
+      df_o2sat_fu14$O2_sat %>% var(na.rm = TRUE)
       
       
   # TM00030
-      df_follow_up %>% f_plot_thc(16) # signal too noisy
+      # THC
+      df_follow_up %>% f_plot_thc(15)
+      df_thc_fu15 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(15, 0, 1400)
+      df_thc_fu15$THC %>% var(na.rm = TRUE)
       
       # O2 sat
-      df_follow_up %>% f_plot_o2sat(16) # signal too noisy
+      df_follow_up %>% f_plot_o2sat(15)
+      df_o2sat_fu15 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(15, 0, 900)
+      df_o2sat_fu15$O2_sat %>% var(na.rm = TRUE)
       
       
   # TM00032  
       # THC
-      df_follow_up %>% f_plot_thc(17)
-      df_thc_fu17 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(17, 1050, 1600)
-      df_thc_fu17$THC %>% var(na.rm = TRUE)
+      df_follow_up %>% f_plot_thc(16)
+      df_thc_fu16 <- df_follow_up %>% dplyr::select(-O2_sat) %>% f_segment_signal(16, 0, 2000)
+      df_thc_fu16$THC %>% var(na.rm = TRUE)
       
       # O2 sat
-      df_follow_up %>% f_plot_o2sat(17)
-      df_o2sat_fu17 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(17, 1050, 1600) # very noisy signal
-      df_o2sat_fu17$O2_sat %>% var(na.rm = TRUE)
+      df_follow_up %>% f_plot_o2sat(16)
+      df_o2sat_fu16 <- df_follow_up %>% dplyr::select(-THC) %>% f_segment_signal(16, 0, 900)
+      df_o2sat_fu16$O2_sat %>% var(na.rm = TRUE)
       
       
   # combine all  
       df_thc_fu_filt <- bind_rows(df_thc_fu1, df_thc_fu2, df_thc_fu3, df_thc_fu4, df_thc_fu5,
                                   df_thc_fu6, df_thc_fu7, df_thc_fu8, df_thc_fu9, df_thc_fu10,
-                                  df_thc_fu12, df_thc_fu13, df_thc_fu14, df_thc_fu17) # no 11, 15, 16
+                                  df_thc_fu11, df_thc_fu12, df_thc_fu13, df_thc_fu14, df_thc_fu15, df_thc_fu16) 
       
       
       df_o2sat_fu_filt <- bind_rows(df_o2sat_fu1, df_o2sat_fu2, df_o2sat_fu3, df_o2sat_fu4, df_o2sat_fu5,
-                                    df_o2sat_fu6, df_o2sat_fu7, df_o2sat_fu8, df_o2sat_fu9, df_o2sat_fu10,
-                                     df_o2sat_fu12, df_o2sat_fu14, df_o2sat_fu17) # no 11, 13, 15, 16
+                                  df_o2sat_fu6, df_o2sat_fu7, df_o2sat_fu8, df_o2sat_fu9, df_o2sat_fu10,
+                                  df_o2sat_fu11, df_o2sat_fu12, df_o2sat_fu13, df_o2sat_fu14, df_o2sat_fu15, df_o2sat_fu16) 
       
 
+      
+      
       
       
       
@@ -343,11 +358,7 @@
         theme_bw() +
         labs(y = "percent") +
         ggtitle("Cerebral tissue hemoglobin oxygen saturation in CM follow-up patients") +
-        theme(legend.position = "none") ## negative value??
-      
-      
-      df_o2sat_fu_mean %>% filter(o2sat_mean < 0)
-      
+        theme(legend.position = "none")
       
 
 
@@ -381,7 +392,7 @@
         ungroup()
       
       # plot
-      df_thc_fu_filt %>% dplyr::filter(number == 5 & Time < 1000 & Time > 990) %>% 
+      df_thc_fu_filt %>% dplyr::filter(number == 5) %>% 
         ggplot(aes(x = Time)) +
         geom_line(aes(y = THC)) +
         geom_line(aes(y = sg_filt), color = "red")
@@ -393,7 +404,7 @@
         ungroup()
       
       # plot
-      df_o2sat_fu_filt %>% dplyr::filter(number == 5 & Time < 1000 & Time > 990) %>% 
+      df_o2sat_fu_filt %>% dplyr::filter(number == 5) %>% 
         ggplot(aes(x = Time)) +
         geom_line(aes(y = O2_sat)) +
         geom_line(aes(y = sg_filt), color = "red")
@@ -413,6 +424,8 @@
       
       # filter out anything lower than 0.01 Hz (noise)
       
+      df_thc_fu_filt_pass %>% group_by(number) %>% mutate(mean = mean(THC))
+      
       # THC
       l_thc_fu_filt <- df_thc_fu_filt %>% split(df_thc_fu_filt$number)
       sampling_rate <- 50
@@ -425,8 +438,7 @@
       l_o2sat_fu_filt <- df_o2sat_fu_filt %>% split(df_o2sat_fu_filt$number)
       l_o2sat_fu_filt_pass <- 1:length(l_o2sat_fu_filt) %>% purrr::map(~mutate(l_o2sat_fu_filt[[.x]], high_pass = filtfilt(butter_filter, sg_filt)))
       
-      df_o2sat_fu_filt_pass <- rbindlist(l_o2sat_fu_filt_pass) %>% as_tibble()
-      
+
       
   # plot levels of signal processing
       df_thc_fu_filt_pass %>% dplyr::filter(number == 1) %>% 
@@ -673,8 +685,7 @@
       save(l_dfa_thc_fu, l_dfa_o2sat_fu, file = "dfa_follow_up_results.Rdata")   
       
       
-      
-      
+
 
 # second order detrending -------------------------------------------------
 
@@ -786,12 +797,25 @@
         left_join(df_o2sat_fu_dfa, by = c("number", "Status")) %>% 
         rename("Hb_o2sat_fu_alpha" = "alpha", "Hb_o2sat_fu_second_alpha" = "second_alpha")
         
+      # add means
+      df_fu_results <- df_fu_results %>% 
+        left_join(df_THC_fu_mean) %>% 
+        left_join(df_o2sat_fu_mean) %>% 
+        dplyr::rename("avg_Hb_conc_fu" = "THC_mean", "avg_Hb_o2sat_fu" = "o2sat_mean") %>% 
+        mutate(visit = factor("02")) %>% 
+        
+        # reorder
+        dplyr::select(number, subject_id, visit, Status, 
+                      avg_Hb_conc_fu, Hb_conc_fu_alpha, Hb_conc_fu_second_alpha,
+                      avg_Hb_o2sat_fu, Hb_o2sat_fu_alpha, Hb_o2sat_fu_second_alpha)
+      
       # save for figure plotting
       save(df_fu_results, file = "follow_up_results.Rdata")
       
+      # write csv
+      write.csv(df_fu_results, file = "Data/follow_up_results.csv")
       
-      
-      
+
 # plot patient trends -----------------------------------------------------
  
 
@@ -805,6 +829,7 @@
         
       # reorganize for plotting
       df_results_all_plot <- df_results_all %>% 
+        dplyr::select(-visit) %>% 
         dplyr::filter(subject_id %in% df_fu_results$subject_id) %>% 
         pivot_longer(cols = 4:ncol(.), names_to = "variable", values_to = "value") %>% 
         mutate(follow_up = ifelse(grepl("fu", variable), "follow-up", "initial visit")) %>% 

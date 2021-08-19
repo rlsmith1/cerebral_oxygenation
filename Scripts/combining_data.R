@@ -43,19 +43,20 @@
   
   # Trim for variables of interest (VOI)
   df_hbox_trim <- df_hbox %>% 
-    dplyr::select(c(Subject.ID.and.Visit, Status, Sex, Age, Glucose, Hematocrit, Lactate, Temperature,
+    dplyr::select(c(Subject.ID..NIAID., Status, Subject.ID.and.Visit, Admission.Date, DOB, Sex, Age, Glucose, Hematocrit, Lactate, Temperature,
                     Arginine.umol.L, Haptoglobin..mg.dl., Hemoglobin..uM., 
                     BP.Diastolic, BP.Systolic, O2.Sat, RR, HR)) %>% 
-    dplyr::rename("subject_id" = "Subject.ID.and.Visit") 
-  
+    dplyr::filter(!grepl("blood", Subject.ID.and.Visit)) %>% 
+    dplyr::rename("subject_id" = "Subject.ID..NIAID.", "visit" = "Subject.ID.and.Visit") %>% 
+    dplyr::mutate(visit = substr(visit, start = 9, stop = 10))
   
 
+  
 # join clinical data with dfa results -------------------------------------
 
 
-  
   df_master <- df_hbox_trim %>% 
-    left_join(df_results, by = c("subject_id", "Status")) %>% 
+    left_join(df_results %>% mutate(subject_id = substr(subject_id, start = 1, stop = 6)), by = c("subject_id", "Status")) %>% 
     dplyr::select(-number)
 
 
@@ -81,16 +82,17 @@
 
   # any duplicated patients?
   df_master %>% count(subject_id) %>% count(n)
-  
+
   # any negative Hb o2 sat?
   df_master %>% dplyr::filter(avg_Hb_o2sat < 20)
+  
+  
   
   
 # export as csv -----------------------------------------------------------
 
   write.csv(df_master, file = "Data/master_datatable.csv")
     
-  
 
   
   
