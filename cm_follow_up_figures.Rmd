@@ -80,6 +80,7 @@ df_results_all_plot %>%
   mutate(measurement = ifelse(grepl("conc", variable), "THC", "O2_sat")) %>% 
   mutate(measurement = factor(measurement, levels = c("O2_sat", "THC"))) %>% 
   mutate(pvals = ifelse(measurement == "THC", round(thc_fu_pval, 3), round(o2sat_fu_pval, 3))) %>% 
+  mutate(ycoord = ifelse(measurement == "THC", 400, 100)) %>% 
   
   ggplot(aes(x = follow_up, y = value)) +
   geom_violin(aes(color = follow_up)) +
@@ -87,10 +88,10 @@ df_results_all_plot %>%
   stat_summary(fun = "median", geom = "crossbar", aes(x = follow_up, color = follow_up), size = 0.2, width = 0.5) +
   geom_path(aes(group = subject_id), lty = 2, alpha = 0.7) +
   
-  geom_segment(aes(x = 1, y = 1.4, xend = 2, yend = 1.4), size = 0.3) +
-  geom_segment(aes(x = 1, y = 1.4, xend = 1, yend = 1.35), size = 0.3) +
-  geom_segment(aes(x = 2, y = 1.4, xend = 2, yend = 1.35), size = 0.3) +
-  geom_text(x = 1.5, y = 1.43, aes(label = paste0("p = ", pvals))) +
+  geom_segment(aes(x = 1, y = ycoord, xend = 2, yend = ycoord), size = 0.3) +
+  geom_segment(aes(x = 1, y = ycoord, xend = 1, yend = ycoord - .04*ycoord), size = 0.3) +
+  geom_segment(aes(x = 2, y = ycoord, xend = 2, yend = ycoord - .04*ycoord), size = 0.3) +
+  geom_text(x = 1.5, aes(y = ycoord + .025*ycoord, label = paste0("p = ", pvals))) +
   
   facet_wrap(~measurement, scales = "free_y") +
   labs(y = "", x = "") +
@@ -108,12 +109,14 @@ df_results_all_plot %>%
 #### B: Cerebral hemoglobin oxygen saturation & hemolgobin concentration alphas
 ```{r fig5b} 
 
+library(scales)
+
 df_results_all_plot %>% 
   
   dplyr::filter(!grepl("avg|second", variable)) %>% 
   mutate(measurement = ifelse(grepl("conc", variable), "THC", "O2_sat")) %>% 
   mutate(measurement = factor(measurement, levels = c("O2_sat", "THC"))) %>% 
-  mutate(pvals = ifelse(measurement == "THC", round(thc_alpha_fu_pval, 3), round(o2sat_alpha_fu_pval, 3))) %>% 
+  mutate(pvals = ifelse(measurement == "THC", scientific(thc_alpha_fu_pval, 3), scientific(o2sat_alpha_fu_pval, 3))) %>% 
   
   ggplot(aes(x = follow_up, y = value)) +
   geom_violin(aes(color = follow_up)) +
@@ -124,7 +127,7 @@ df_results_all_plot %>%
   geom_segment(aes(x = 1, y = 1.4, xend = 2, yend = 1.4), size = 0.3) +
   geom_segment(aes(x = 1, y = 1.4, xend = 1, yend = 1.35), size = 0.3) +
   geom_segment(aes(x = 2, y = 1.4, xend = 2, yend = 1.35), size = 0.3) +
-  geom_text(x = 1.5, y = 1.43, aes(label = paste0("p = ", pvals))) +
+  geom_text(x = 1.5, y = 1.43, aes(label = paste0("p < .0001"))) +
   
   facet_wrap(~measurement) +
   
