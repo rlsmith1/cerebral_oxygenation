@@ -32,6 +32,7 @@ library(grDevices)
 
 load("glm_model.Rdata")
 load("results.Rdata")
+load("roc_curves.Rdata")
 load("dfa_example.Rdata")
 load("dfa_results.Rdata")
 
@@ -393,6 +394,152 @@ final_res_conf_mat %>%
         legend.text = element_text(size = 15))
 
 ```
+
+#### C. ROC curve of final model compared to other iterations
+
+```{r fig3c_prep, eval = FALSE}
+
+
+## write function to create model on given df
+
+f_log_reg_model <- function(df_model) {
+  
+  # resample
+  hbox_boot <- bootstraps(df_model, strata = Status, times = 1000)
+  
+  # recipe
+  hbox_rec <- recipe(Status ~ ., data = df_model) %>% 
+    step_BoxCox(all_predictors()) %>% 
+    step_nzv(all_predictors()) %>% 
+    step_smote(Status) # upsample to deal with unbalanced sample sizes
+  
+  # create workflow
+  hbox_wf <- workflow() %>% add_recipe(hbox_rec)
+  
+  # logistic regression model specifications
+  glm_spec <- logistic_reg() %>% set_engine("glm")
+  
+  # create model on resamples
+  glm_res <- hbox_wf %>% 
+    add_model(glm_spec) %>%
+    fit_resamples(
+      resamples = hbox_boot,
+      metrics = metric_set(roc_auc, accuracy, sensitivity, specificity),
+      control = tune::control_resamples(save_pred = TRUE, verbose = TRUE)
+    )
+  
+  # select best model to be used for evaluation
+  glm_best <- glm_res %>% select_best("roc_auc")
+  
+  # finalize model
+  hbox_final <- hbox_wf %>% 
+    add_model(glm_spec) %>% 
+    finalize_workflow(glm_best) %>%
+    fit(df_model) %>%
+    pull_workflow_fit()
+  
+  # view coefficients & p-values
+  model_coefs <- hbox_final %>% tidy()
+  
+  # return list including model and a table of best model variable statistics
+  list(glm_res, model_coefs)
+    
+}
+    
+## write function to collect predictions for ROC plot    
+   
+f_collect_preds <- function(glm_res) {
+  
+      glm_res %>% 
+      collect_predictions() %>% 
+      roc_curve(Status, .pred_CM)
+
+}
+    
+
+## Perform functions on all iterations of model
+
+set.seed(123)
+
+    # select starting variables
+    df_hbox_model1 <- df_hbox_log_reg %>% 
+      dplyr::select(c(Status, Hematocrit, Lactate, avg_Hb_o2sat, Hb_o2sat_second_alpha, avg_Hb_conc, Hb_conc_second_alpha)) %>% 
+      mutate(Status = factor(Status, levels = c("CM", "UM")))
+    
+    # model 1: Status ~ Hematocrit + Lactate + avg_Hb_o2sat + Hb_o2sat_second_alpha + avg_Hb_conc + Hb_conc_second_alpha
+    model1 <- f_log_reg_model(df_hbox_model1)
+    roc1 <- f_collect_preds(model1[[1]]) %>% mutate(model = "1")
+    model1[[2]] # remove Hb_o2sat_second_alpha (highest p-val)
+    
+    # model 2: Status ~ Hematocrit + Lactate + avg_Hb_o2sat + avg_Hb_conc + Hb_conc_second_alpha
+    df_hbox_model2 <-  df_hbox_model1 %>% dplyr::select(-Hb_o2sat_second_alpha)
+    model2 <- f_log_reg_model(df_hbox_model2)
+    roc2 <- f_collect_preds(model2[[1]]) %>% mutate(model = "2")
+    model2[[2]] # remove Lactate
+    
+    # model 3: Status ~ Hematocrit + avg_Hb_o2sat + avg_Hb_conc + Hb_conc_second_alpha
+    df_hbox_model3 <-  df_hbox_model2 %>% dplyr::select(-Lactate)
+    model3 <- f_log_reg_model(df_hbox_model3)
+    roc3 <- f_collect_preds(model3[[1]]) %>% mutate(model = "3")
+    model3[[2]] # remove avg_Hb_o2sat
+
+    # model 4: Status ~ Hematocrit + avg_Hb_conc + Hb_conc_second_alpha
+    df_hbox_model4 <-  df_hbox_model3 %>% dplyr::select(-avg_Hb_o2sat)
+    model4 <- f_log_reg_model(df_hbox_model4)
+    roc4 <- f_collect_preds(model4[[1]]) %>% mutate(model = "4")
+    model4[[2]] # none to remove, final model
+
+save(roc1, roc2, roc3, file = "roc_curves.Rdata")
+
+# calculate areas under curves
+
+library(MESS)
+roc1 <- roc1 %>% mutate(false_pos = 1 - specificity)
+auc(roc1$false_pos, roc1$sensitivity)
+
+roc2 <- roc2 %>% mutate(false_pos = 1 - specificity)
+auc(roc2$false_pos, roc2$sensitivity)
+
+roc3 <- roc3 %>% mutate(false_pos = 1 - specificity)
+auc(roc3$false_pos, roc3$sensitivity)
+
+roc_final <- glm_res %>% 
+  collect_predictions() %>% 
+  roc_curve(Status, .pred_0) %>% 
+  mutate(false_pos = 1 - specificity)
+auc(roc_final$false_pos, roc_final$sensitivity)
+
+
+```
+
+```{r fig3c_plot, fig.height = 8}
+
+df_roc <- glm_res %>% 
+  collect_predictions() %>% 
+  roc_curve(Status, .pred_0) %>% 
+  mutate(model = "final") %>% 
+  bind_rows(roc1, roc2, roc3) 
+
+ggplot() +
+  geom_path(data = df_roc %>% filter(model == "final"), 
+            aes(x = 1 - specificity, y = sensitivity, color = model), 
+            size = 2.5) +
+  geom_path(data = df_roc %>% filter(model != "final"), 
+            aes(x = 1 - specificity, y = sensitivity, color = model), 
+            size = 1) +
+  geom_abline(lty = 3) +
+  labs(x = "False positive rate", y = "True positive rate") +
+  theme_bw() +
+  
+  theme(text = element_text(family = "Arial"),
+        axis.title = element_text(size = 25),
+        axis.text = element_text(size = 20),
+        legend.title = element_text(size = 20),
+        legend.text = element_text(size = 15),
+        legend.position = "top")
+
+```
+
 
 **Figure 3.** Logistic regression model discriminating CM vs UM patients using cerebral tissue hemoglobin concentration, cerebral tissue hemoglobin concentration alpha, and hematocrit as the regressors **(A)** PCA of patients with CM and UM as determined by NIRS variables. Color indicates patient status, ellipses show median and 95% confidence interval on the cluster. **(B)** Confusion matrix representing the results of the logistic regression model averaged across 1000 bootstrap resamples. Percent occurrence indicates percentage times that the event (shown by the x- and y-axes) occurred.
 
