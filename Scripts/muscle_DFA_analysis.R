@@ -1841,7 +1841,7 @@
       
       theme_bw() +
       labs(y = "uM") +
-      ggtitle("Cerebral tissue hemoglobin concentration") +
+      ggtitle("Muscle hemoglobin concentration") +
       theme(legend.position = "none") 
     
     
@@ -1860,7 +1860,7 @@
       
       theme_bw() +
       labs(y = "percent") +
-      ggtitle("Cerebral tissue hemoglobin oxygen saturation") +
+      ggtitle("Muscle hemoglobin oxygen saturation") +
       theme(legend.position = "none")
     
     # Explore any nonsensical values, especially any negatives in the Hb_oxy. you may want to remove those patients from the analysis due to unreliable readings
@@ -2344,7 +2344,7 @@
     
     # plot
     df_hbtot_dfa_muscle %>% 
-      ggplot(aes(x = Status, y = second_alpha)) +
+      ggplot(aes(x = Status, y = alpha)) +
       geom_violin(aes(color = Status)) +
       geom_jitter(position = position_jitter(0.2), shape = 1) +
       stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
@@ -2356,9 +2356,9 @@
       theme(legend.position = "none")
     
     # test for differences
-    df_hbtot_dfa_muscle %>% group_by(Status) %>% summarise(median = median(second_alpha))
-    kruskal.test(second_alpha ~ Status, data = df_hbtot_dfa_muscle)
-    DunnTest(second_alpha ~ Status, data = df_hbtot_dfa_muscle)
+    df_hbtot_dfa_muscle %>% group_by(Status) %>% summarise(median = median(alpha))
+    kruskal.test(alpha ~ Status, data = df_hbtot_dfa_muscle)
+    DunnTest(alpha ~ Status, data = df_hbtot_dfa_muscle)
     
     
     
@@ -2366,7 +2366,7 @@
     
     # plot
     df_hboxy_dfa_muscle %>% 
-      ggplot(aes(x = Status, y = second_alpha)) +
+      ggplot(aes(x = Status, y = alpha)) +
       geom_violin(aes(color = Status)) +
       geom_jitter(position = position_jitter(0.2), shape = 1) +
       stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
@@ -2379,16 +2379,54 @@
     
     
     # test for differences
-    df_hboxy_dfa_muscle %>% group_by(Status) %>% summarise(median = median(second_alpha))
-    kruskal.test(second_alpha ~ Status, data = df_hboxy_dfa_muscle)
-    DunnTest(second_alpha ~ Status, data = df_hboxy_dfa_muscle)
+    df_hboxy_dfa_muscle %>% group_by(Status) %>% summarise(median = median(alpha))
+    kruskal.test(alpha ~ Status, data = df_hboxy_dfa_muscle)
+    DunnTest(alpha ~ Status, data = df_hboxy_dfa_muscle)
     
     
     
     
+
+# combine results for export ----------------------------------------------
+
+
+    # pair number with subject_id, remove duplicates (ending in 2)
+    df_num_id_muscle <- df_hbtot_cumsum_muscle %>% 
+      count(number, subject_id) %>% 
+      dplyr::select(-n)
     
+    df_num_id_muscle <- df_num_id_muscle %>% dplyr::filter(!grepl("01 2", subject_id))
     
+    # Take means
+    df_hbtot_muscle_mean <- df_hbtot_filt_muscle %>% 
+      dplyr::filter(!is.na(sg_filt)) %>% 
+      group_by(number, Status) %>% 
+      summarise(avg_Hb_conc_muscle = mean(sg_filt))
     
+    df_hboxy_muscle_mean <- df_hboxy_filt_muscle %>% 
+      dplyr::filter(!is.na(sg_filt)) %>% 
+      group_by(number, Status) %>% 
+      summarise(avg_Hb_o2sat_muscle = mean(sg_filt))
+    
+    # combine into df
+    
+    df_muscle_results <- df_num_id_muscle %>% 
+      left_join(df_hbtot_dfa_muscle, by = "number") %>% 
+      dplyr::rename("muscle_Hb_conc_alpha" = "alpha", "muscle_Hb_conc_second_alpha" = "second_alpha") %>% 
+      left_join(df_hboxy_dfa_muscle, by = c("number", "Status")) %>% 
+      rename("muscle_Hb_o2sat_alpha" = "alpha", "muscle_Hb_o2sat_second_alpha" = "second_alpha") %>% 
+      
+      # add hbtot and hboxy means
+      left_join(df_hbtot_muscle_mean, by = "number") %>% 
+      left_join(df_hboxy_muscle_mean, by = "number") %>% 
+      
+      # reorder
+      dplyr::select(number, subject_id, Status, 
+                    avg_Hb_conc_muscle, muscle_Hb_conc_alpha, muscle_Hb_conc_second_alpha,
+                    avg_Hb_o2sat_muscle, muscle_Hb_o2sat_alpha, muscle_Hb_o2sat_second_alpha)
+    
+    # save!!!
+    save(df_muscle_results, file = "muscle_dfa_results.Rdata")
     
     
     

@@ -52,12 +52,40 @@
   
 
   
+  
+# combine DFA results from brain and muscle, initial visit & follow-up --------
+
+  load("results.Rdata")
+  load("follow_up_results.Rdata")
+  load("muscle_dfa_results.Rdata")
+  load("muscle_follow_up_results.Rdata")
+  
+
+  df_results <- df_results %>% mutate(subject_id = substr(subject_id, start = 1, stop = 6)) %>% select(-number)
+  df_fu_results <- df_fu_results %>% mutate(subject_id = substr(subject_id, start = 1, stop = 6)) %>% select(-number)
+  df_muscle_results <- df_muscle_results %>% mutate(subject_id = substr(subject_id, start = 1, stop = 6)) %>% select(-number)
+  df_muscle_fu_results <- df_muscle_fu_results %>% mutate(subject_id = substr(subject_id, start = 1, stop = 6)) %>% select(-number)
+  
+  # combine brain data
+  df_brain_dfa_results <- df_results %>% 
+    left_join(df_fu_results, by = c("subject_id", "Status")) %>% 
+    select(-visit)
+  
+  # combine muscle data
+  df_muscle_dfa_results <- df_muscle_results %>% 
+    left_join(df_muscle_fu_results, by = c("subject_id", "Status"))
+  
+  
+  # combine all!
+  df_all_dfa_results <- df_brain_dfa_results %>% 
+    right_join(df_muscle_dfa_results, by = c("subject_id", "Status"))
+  
+  
 # join clinical data with dfa results -------------------------------------
 
 
   df_master <- df_hbox_trim %>% 
-    left_join(df_results %>% mutate(subject_id = substr(subject_id, start = 1, stop = 6)), by = c("subject_id", "Status")) %>% 
-    dplyr::select(-number)
+    left_join(df_all_dfa_results, by = c("subject_id", "Status"))
 
 
 # filter  ---------------------------------------------------------
@@ -81,7 +109,8 @@
 
 
   # any duplicated patients?
-  df_master %>% count(subject_id) %>% count(n)
+  df_master %>% count(subject_id) %>% dplyr::filter(n > 1) # TM2001
+
 
   # any negative Hb o2 sat?
   df_master %>% dplyr::filter(avg_Hb_o2sat < 20)
@@ -92,7 +121,9 @@
 # export as csv -----------------------------------------------------------
 
   write.csv(df_master, file = "Data/master_datatable.csv")
-    
+
+  
+  
 
   
   
