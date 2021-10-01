@@ -285,6 +285,7 @@
             
 ### FAST-FOURIER TRANSFORM
             
+      ### *** better function for this in Python!!!
             
       # perform and visualize the FFT for each signal. we didn't really use this for the 2021 paper either
             
@@ -293,47 +294,41 @@
               # df = df_hboxy_filt_pass or df_hbtot_filt_pass (NIRS signal + sg filter + high pass)
               # num = patient number to plot
               # zoom = look at overall FFT (FALSE) or freq range of interest (0-1.5 Hz; TRUE)
-            
+       
+      library(forecast)     
             
             f_plot_fft <- function(df, num, zoom = TRUE) {
               
-              # compute fft
+              series <- df %>% filter(number == num) %>% .$sg_filt
+              sampling_rate <- 1/.02
               
-              fft <- df %>% dplyr::filter(number == num) %>% .$sg_filt %>% fft() 
+              acf <- acf(series, type = "covariance")
+              ft <- fft(acf$acf)
+              freq <- (1:nrow(ft))*sampling_rate/nrow(ft)
+              amp <- (Re(ft)^2 + Im(ft)^2)^.5 # amplitude is magnitude
+              PSD <- cbind.data.frame(freq, amp) %>% as_tibble()
               
-              # determine power spectra
-              
-              freq <- 50  #sample frequency in Hz 
-              duration <- df %>% dplyr::filter(number == num) %>% nrow()/freq # length of signal in seconds
-              amo <- Mod(fft) # frequency "amounts" (power)
-              freqvec <- 1:length(amo) # associated frequency
-              
-              freqvec <- freqvec/duration # normalize to signal length to get frequency ranges
-              df <- tibble(freq = freqvec, power = amo) # create df assigning power to each frequency
-              df <- df[(1:as.integer(0.5*freq*duration)),] # select rows within Nyquist frequency
-              
-              # plot power spectra
-              p <- df %>% dplyr::filter(freq < ifelse(zoom == TRUE, 1.5, max(freq))) %>% 
+              # plot
+              p <- PSD %>% 
+                ggplot(aes(x = freq, y = amp)) + 
+                geom_line() +
                 
-                ggplot(aes(x = freq, y = power)) + 
-                geom_line(stat = "identity") +
-                geom_vline(xintercept = 0.01, lty = 2, color = "red") +
+                geom_vline(xintercept = 0.01, color = "red", lty = 2) +
+                geom_vline(xintercept = 0.15, color = "red", lty = 2) +
                 
-                theme_bw() +
-                
-                theme(axis.text.x = element_text(angle = 45, hjust = 0.9))
+                theme_bw()
               
-              ifelse(zoom == TRUE, p <- p + scale_x_continuous(breaks = seq(0, 1.5, 0.1)), p <- p)
+              ifelse(zoom == TRUE, p <- p + xlim(0, 1), p <- p)
               
               p
               
             }
             
             
-            f_plot_fft(df_hboxy_filt_pass, 1, zoom = TRUE)  
-            f_plot_fft(df_hbtot_filt_pass, 1, zoom = TRUE)  
+            f_plot_fft(df_thc_filt_pass, 1, zoom = TRUE)  
+            f_plot_fft(df_hbtot_filt_pass_muscle, 1, zoom = FALSE)  
             
-            
+
             
 ### SAVE THE FILTERED SIGNALS
             
@@ -345,9 +340,11 @@
                  file = "filtered_signals.Rdata")
             
             
-            
+    df_hbtot_filt_pass_muscle %>% filter(Status == "UM") %>% count(number, subject_id)        
+    df_thc_filt_pass %>% filter(Status == "UM") %>% count(number, subject_id)
 
-            
+    
+    
 # Detrended fluctuation analysis ------------------------------------------
 
 

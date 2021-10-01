@@ -23,7 +23,8 @@
   # get rid of "Other"
   df_hbox <- df_hbox %>% 
     dplyr::filter(Status != "Other") %>% 
-    mutate(Status = factor(Status, levels = c("HV", "UM", "CM")))
+    mutate(Status = replace(Status, Status == "HV", "HC"), 
+           Status = factor(Status, levels = c("HC", "UM", "CM")))
   
   # identify duplicated rows (TM0003, TM2001)
   # df_hbox <- df_hbox %>% dplyr::filter(duplicated(Subject.ID..NIAID.) == FALSE)
@@ -52,7 +53,6 @@
   
 
   
-  
 # combine DFA results from brain and muscle, initial visit & follow-up --------
 
   load("results.Rdata")
@@ -61,7 +61,13 @@
   load("muscle_follow_up_results.Rdata")
   
 
-  df_results <- df_results %>% mutate(subject_id = substr(subject_id, start = 1, stop = 6)) %>% select(-number)
+  # df_results <- df_results %>% 
+  #   mutate(Status = ifelse(is.na(Status), "HC", as.character(Status)),
+  #          subject_id = substr(subject_id, start = 1, stop = 6)) %>% 
+  #   mutate(Status = factor(Status, levels = c("HC", "UM", "CM")))
+  
+  # save(df_results, file = "results.Rdata")
+
   df_fu_results <- df_fu_results %>% mutate(subject_id = substr(subject_id, start = 1, stop = 6)) %>% select(-number)
   df_muscle_results <- df_muscle_results %>% mutate(subject_id = substr(subject_id, start = 1, stop = 6)) %>% select(-number)
   df_muscle_fu_results <- df_muscle_fu_results %>% mutate(subject_id = substr(subject_id, start = 1, stop = 6)) %>% select(-number)
@@ -82,7 +88,6 @@
   
   
 # join clinical data with dfa results -------------------------------------
-
 
   df_master <- df_hbox_trim %>% 
     left_join(df_all_dfa_results, by = c("subject_id", "Status"))
@@ -117,15 +122,13 @@
   
   
   
-  
 # export as csv -----------------------------------------------------------
 
   write.csv(df_master, file = "Data/master_datatable.csv")
 
-  
-  
+  # also save dfa results as a separate object
+  save(df_brain_dfa_results, df_muscle_dfa_results, df_all_dfa_results, file = "all_dfa_results.Rdata")
 
-  
   
   
   
