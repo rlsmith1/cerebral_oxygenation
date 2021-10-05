@@ -95,8 +95,48 @@
           dplyr::filter(Time > start & Time < end) # time is in SECONDS
       }
     
+
+# Plot all together
       
-   ## variance needs to be < 10000 ##
+      df_follow_up_long <- df_follow_up %>% 
+        pivot_longer(5:6, values_to = "value", names_to = "variable")
+      
+      f_plot_all <- function(df, num) {
+        
+        subject_id <- df %>% 
+          count(number, subject_id) %>% 
+          dplyr::filter(number == num) %>% 
+          .$subject_id 
+        
+        df %>% 
+          dplyr::filter(number == num) %>% 
+          ggplot(aes(x = Time, y = value)) +
+          geom_line() +
+          facet_wrap(~variable, scales = "free_y") +
+          ggtitle(subject_id) +
+          theme_bw()
+        
+      }
+      
+      f_plot_all(df_follow_up_long, 2)
+      
+      # save as pdf
+      l_plot <- list()
+      for (i in unique(df_follow_up_long$number)) {
+        
+        p <- f_plot_all(df_follow_up_long, i)
+        l_plot[[i]] <- p
+        
+      }
+      
+      pdf("Outputs/follow_up_brain_tracings.pdf")
+      for (i in unique(df_follow_up_long$number)) {
+        print(l_plot[[i]])    
+      }
+      dev.off()
+    
+        
+ ## variance needs to be < 10000 ##
 
   # 1: TM0005CMF
       

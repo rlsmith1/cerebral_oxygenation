@@ -66,8 +66,8 @@
 
   save(df_raw_data, file = "raw_data.Rdata")
 
-  
 
+  
 # explore --------------------------------------------------------------------
 
 
@@ -109,6 +109,9 @@
 # remove blips (manual) ------------------------------------------------------------
 
 
+  load("raw_data.Rdata")
+  
+  
 # remove signals that aren't at least 200s  
   sampling_rate <- 1/.02
   df_raw_data %>% group_by(number) %>% count() %>% dplyr::filter(n < 200*sampling_rate) # 21 and 26 not long enough
@@ -122,7 +125,7 @@
     df %>% 
       dplyr::filter(number == num) %>% 
       ggplot(aes(x = Time, y = THC)) +
-      geom_line()
+      geom_line() 
     
   }
   
@@ -144,9 +147,49 @@
       dplyr::filter(Time > start & Time < end) # time is in SECONDS
   }
 
+  
+# Plot all together
+  
+  df_raw_data_long <- df_raw_data %>% 
+    pivot_longer(5:6, values_to = "value", names_to = "variable")
+  
+  f_plot_all <- function(df, num) {
+    
+    subject_id <- df %>% 
+      count(number, subject_id) %>% 
+      dplyr::filter(number == num) %>% 
+      .$subject_id 
+    
+    df %>% 
+      dplyr::filter(number == num) %>% 
+      ggplot(aes(x = Time, y = value)) +
+      geom_line() +
+      facet_wrap(~variable, scales = "free_y") +
+      ggtitle(subject_id) +
+      theme_bw()
+    
+  }
+  
+  f_plot_all(df_raw_data_long, 2)
+
+  # save as pdf
+  l_plot <- list()
+  for (i in unique(df_raw_data_long$number)) {
+    
+    p <- f_plot_all(df_raw_data_long, i)
+    l_plot[[i]] <- p
+    
+  }
+  
+  pdf("Outputs/brain_tracings.pdf")
+  for (i in unique(df_raw_data_long$number)) {
+    print(l_plot[[i]])    
+  }
+  dev.off()
+  
 # 1
   # THC
-  df_raw_data %>% f_plot_thc(1) +theme_bw()# eyeball where after blips is
+  df_raw_data %>% f_plot_thc(1) + theme_bw()# eyeball where after blips is
   df_thc1 <- df_raw_data %>% dplyr::select(-O2_sat) %>% f_segment_signal(1, 1200, 2500) # shorten signal to that length, must be >200s
   df_thc1$THC %>% var(na.rm = TRUE) # check var less than 1000
   
