@@ -408,7 +408,6 @@ final_res_conf_mat %>%
 
 ```{r fig3c_prep, eval = FALSE}
 
-
 ## write function to create model on given df
 
 f_log_reg_model <- function(df_model) {
