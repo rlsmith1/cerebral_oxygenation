@@ -1300,7 +1300,7 @@
                              df_o2sat91, df_o2sat92, df_o2sat93, df_o2sat94, df_o2sat95)
   
   
-# calculate average THC and o2 sat ------------------------------------------------
+# calculate average Hb_tot and Hb_oxy sat ------------------------------------------------
 
   # total THC
     df_THCmean <- df_thc_filt %>% 
@@ -1367,13 +1367,14 @@
         theme(legend.position = "none") ## negative values??
       
 
+      
 
-  
-  
-# savitzy-golay signal smoothing  ---------------------------------------------------------
+      
+
+# export to Matlab for signal processing ----------------------------------
 
     # add milliseconds in to Time
-    
+      
       # THC
       df_thc_filt <- df_thc_filt %>% 
         group_by(number, Time) %>% 
@@ -1387,148 +1388,29 @@
         left_join(count(.)) %>% 
         mutate(Time = ifelse(n == 49, Time + 0.02*row_number(), Time + 0.02*(row_number() - 1))) %>% 
         dplyr::select(-n)
-    
-    
-    # 4th order savitzy-golay filter
-    library(signal)
-    # df_thc_filt <- df_thc_filt_pass[,1:5] # uncomment to recreate df_thc_filt
-    
-    
-      # THC
-        df_thc_filt <- df_thc_filt %>% 
-          group_by(number) %>% 
-          mutate(sg_filt = sgolayfilt(THC, p = 3)) %>% 
-          ungroup()
-        
-        # plot
-        df_thc_filt %>% dplyr::filter(number == 10 & Time < 1500 & Time > 1490) %>% 
-          ggplot(aes(x = Time)) +
-          geom_line(aes(y = THC)) +
-          geom_line(aes(y = sg_filt), color = "red")
-        
-      # O2 sat
-        df_o2sat_filt <- df_o2sat_filt %>% 
-          group_by(number) %>% 
-          mutate(sg_filt = sgolayfilt(O2_sat, p = 3)) %>% 
-          ungroup()
-        
-        # plot
-        df_o2sat_filt %>% dplyr::filter(number == 10 & Time < 1500 & Time > 1490) %>% 
-          ggplot(aes(x = Time)) +
-          geom_line(aes(y = O2_sat)) +
-          geom_line(aes(y = sg_filt), color = "red")
-    
-  
-  
-
-
-# high-pass signal filtering --------------------------------------------------------
-
-  
-  
-  # use a high-pass filter to remove anything below 0.01 Hz (associated with head displacements and motion noise) 
-  
-  
-  library(seewave)
-  library(dplR)
-  library(data.table)
-  
-  # filter out anything lower than 0.01 Hz (noise)
-  
-  # THC
-  l_thc_filt <- df_thc_filt %>% split(df_thc_filt$number)
-  sampling_rate <- 50
-  butter_filter <- butter(4, W = 0.01/(sampling_rate/2), type = "high")
-  l_thc_filt_pass <- 1:length(l_thc_filt) %>% purrr::map(~mutate(l_thc_filt[[.x]], high_pass = filtfilt(butter_filter, sg_filt)))
-  
-  df_thc_filt_pass <- rbindlist(l_thc_filt_pass) %>% as_tibble()
-  
-  # O2 sat
-  l_o2sat_filt <- df_o2sat_filt %>% split(df_o2sat_filt$number)
-  l_o2sat_filt_pass <- 1:length(l_o2sat_filt) %>% purrr::map(~mutate(l_o2sat_filt[[.x]], high_pass = filtfilt(butter_filter, sg_filt)))
-  
-  df_o2sat_filt_pass <- rbindlist(l_o2sat_filt_pass) %>% as_tibble()
-  
-  
-  
-  
-  
-# FFT ---------------------------------------------------------------------
-
-  
-## function to plot fast fourier transform of signal after high-pass filter (0.01 Hz cutoff)
-  # df = df_thc_filt_pass (NIRS signal + sg filter + high pass)
-  # num = patient number to plot
-  # zoom = look at overall FFT (FALSE) or freq range of interest (0-1.5 Hz; TRUE)
-
-  
-  f_plot_fft <- function(df, num, zoom = TRUE) {
-    
-    # compute fft
-    
-    fft <- df %>% dplyr::filter(number == num) %>% .$high_pass %>% fft() 
-    
-    # determine power spectra
-    
-    freq <- 50  #sample frequency in Hz 
-    duration <- df %>% dplyr::filter(number == num) %>% nrow()/freq # length of signal in seconds
-    amo <- Mod(fft) # frequency "amounts" (power)
-    freqvec <- 1:length(amo) # associated frequency
-    
-    freqvec <- freqvec/duration # normalize to signal length to get frequency ranges
-    df <- tibble(freq = freqvec, power = amo) # create df assigning power to each frequency
-    df <- df[(1:as.integer(0.5*freq*duration)),] # select rows within Nyquist frequency
-    
-    # plot power spectra
-    p <- df %>% dplyr::filter(freq < ifelse(zoom == TRUE, 1.5, max(freq))) %>% 
       
-      ggplot(aes(x = freq, y = power)) + 
-      geom_line(stat = "identity") +
-      geom_vline(xintercept = 0.01, lty = 2, color = "red") +
-
-      theme_bw() +
+    # export to .txt to filter in Matlab
       
-      theme(axis.text.x = element_text(angle = 45, hjust = 0.9))
-    
-    ifelse(zoom == TRUE, p <- p + scale_x_continuous(breaks = seq(0, 1.5, 0.1)), p <- p)
-    
-    p
+      # Hb_tot
+      l_thc_filt <- df_thc_filt %>% split(df_thc_filt$number)
+      thc_names <- df_thc_filt$subject_id %>% unique()
+      names(l_thc_filt) <- thc_names
+      path <- "Data/signal_segments/Hb_tot/"
+      1:length(l_thc_filt) %>% map(~write.table(l_thc_filt[[.x]], file = paste0(path, names(l_thc_filt[.x]), ".txt")))
+      
+      # Hb_oxy
+      l_o2sat_filt <- df_o2sat_filt %>% split(df_o2sat_filt$number)
+      o2sat_names <- df_o2sat_filt$subject_id %>% unique()
+      names(l_o2sat_filt) <- o2sat_names
+      path <- "Data/signal_segments/Hb_oxy/"
+      1:length(l_o2sat_filt) %>% map(~write.table(l_o2sat_filt[[.x]], file = paste0(path, names(l_o2sat_filt[.x]), ".txt")))
+      
+      
+      
+   ### moving average & signal filtering are done in MatLab, read back into R for DFA   
 
-  }
-  
-  
- f_plot_fft(df_thc_filt_pass, 1, zoom = TRUE)  
- f_plot_fft(df_o2sat_filt_pass, 1, zoom = TRUE)  
- 
- 
- # plot levels of signal processing
- df_thc_filt_pass %>% dplyr::filter(number == 1 & Time > 1400 & Time < 1410) %>% 
-   ggplot(aes(x = Time)) +
-   geom_line(aes(y = THC)) +
-   geom_line(aes(y = sg_filt), color = "red") +
-   geom_line(aes(y = high_pass), color = "blue") +
-   theme_bw()
- 
- df_o2sat_filt_pass %>% dplyr::filter(number == 1 & Time > 1400 & Time < 1410) %>% 
-   ggplot(aes(x = Time)) +
-   geom_line(aes(y = O2_sat)) +
-   geom_line(aes(y = sg_filt), color = "red") +
-   geom_line(aes(y = high_pass), color = "blue") +
-   theme_bw()
- 
- 
- 
-
-
-# save filtered signal dfs -----------------------------------------------------------------------
-
- 
- 
- # save filtered signal
- save(df_thc_filt, df_thc_filt_pass, 
-      df_o2sat_filt, df_o2sat_filt_pass,
-      file = "filtered_signals.Rdata")
- 
- load("filtered_signals.Rdata")
- 
-
+      
+      
+      
+      
+      

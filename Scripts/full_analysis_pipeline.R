@@ -84,7 +84,7 @@
 
  
     
-### FILTERING SIGNALS
+### SEGMENTING SIGNALS
     
     # remove signals that aren't at least 200s  
     sampling_rate <- 1/.02 # may need to adjust the sampling rate if it's not 50 Hz
@@ -206,144 +206,45 @@
     
     
             
-### SAVITZY-GOLAY SIGNAL SMOOTHING
+### COMPLETE SIGNAL PREPROCESSING IN MATLAB
             
+      # add milliseconds in to Time
             
-      # For some reason, the Oxiplex removes milliseconds after a few seconds. Add milliseconds back in to Time
-            
-            # Hb_tot
+          # Hb_tot
             df_hbtot_filt <- df_hbtot_filt %>% 
               group_by(number, Time) %>% 
               left_join(count(.)) %>% 
               mutate(Time = ifelse(n == 49, Time + 0.02*row_number(), Time + 0.02*(row_number() - 1))) %>% 
               dplyr::select(-n)
             
-            # Hb_oxy
+          # O2 sat
             df_hboxy_filt <- df_hboxy_filt %>% 
               group_by(number, Time) %>% 
               left_join(count(.)) %>% 
               mutate(Time = ifelse(n == 49, Time + 0.02*row_number(), Time + 0.02*(row_number() - 1))) %>% 
               dplyr::select(-n)
             
+        # export to .txt to filter in Matlab
             
-      # 4th order savitzy-golay filter
+          # Hb_tot
+            l_hbtot_filt <- df_hbtot_filt %>% split(df_hbtot_filt$number)
+            hbtot_names <- df_hbtot_filt$subject_id %>% unique()
+            names(l_hbtot_filt) <- hbtot_names
+            path <- "Data/signal_segments/Hb_tot/"
+            1:length(l_hbtot_filt) %>% map(~write.table(l_hbtot_filt[[.x]], file = paste0(path, names(l_hbtot_filt[.x]), ".txt")))
             
-            library(signal)
-            
-            # Hb_tot
-            df_hbtot_filt <- df_hbtot_filt %>% 
-              group_by(number) %>% 
-              mutate(sg_filt = sgolayfilt(Hb_tot, p = 4)) %>% 
-              ungroup()
-            
-                # plot to visualize smoothing
-                df_hbtot_filt %>% dplyr::filter(number == 10 & Time < 1500 & Time > 1490) %>% # can pick any arbitrary time segment to look at
-                  ggplot(aes(x = Time)) +
-                  geom_line(aes(y = Hb_tot)) +
-                  geom_line(aes(y = sg_filt), color = "red")
-            
-            # Hb_oxy 
-            df_hboxy_filt <- df_hboxy_filt %>% 
-              group_by(number) %>% 
-              mutate(sg_filt = sgolayfilt(Hb_oxy, p = 3)) %>% 
-              ungroup()
-            
-            # plot
-            df_hboxy_filt %>% dplyr::filter(number == 10 & Time < 1500 & Time > 1490) %>% 
-                  ggplot(aes(x = Time)) +
-                  geom_line(aes(y = Hb_oxy)) +
-                  geom_line(aes(y = sg_filt), color = "red")
-            
-  
-            
-### HIGH-PASS SIGNAL FILTERING
-             
-             
-      # use a high-pass filter to remove anything below 0.01 Hz (associated with head displacements and motion noise) 
-      # NOTE: we did NOT use this step in the 2021 paper
-            
-            
-            # load required libraries
-            library(seewave)
-            library(data.table)
-            
-            # Hb_tot
-            l_hbtot_filt <- df_hbtot_filt %>% split(df_hbtot_filt$number) # split filtered signals into list of tibbles
-            sampling_rate <- 50 # again, may need to adjust with different sampling rates
-            butter_filter <- butter(4, W = 0.01/(sampling_rate/2), type = "high") # create butter filter
-            l_hbtot_filt_pass <- 1:length(l_hbtot_filt) %>% purrr::map(~mutate(l_hbtot_filt[[.x]], high_pass = filtfilt(butter_filter, sg_filt))) # apply to SG filtered signal
-            
-            df_hbtot_filt_pass <- rbindlist(l_hbtot_filt_pass) %>% as_tibble() # combing again into tibble
-            
-            # repeat for Hb_oxy
+          # Hb_oxy
             l_hboxy_filt <- df_hboxy_filt %>% split(df_hboxy_filt$number)
-            l_hboxy_filt_pass <- 1:length(l_hboxy_filt) %>% purrr::map(~mutate(l_hboxy_filt[[.x]], high_pass = filtfilt(butter_filter, sg_filt)))
-            
-            df_hboxy_filt_pass <- rbindlist(l_hboxy_filt_pass) %>% as_tibble()
-            
-  
-            
-### FAST-FOURIER TRANSFORM
-            
-      ### *** better function for this in Python!!!
-            
-      # perform and visualize the FFT for each signal. we didn't really use this for the 2021 paper either
+            hboxy_names <- df_hboxy_filt$subject_id %>% unique()
+            names(l_hboxy_filt) <- hboxy_names
+            path <- "Data/signal_segments/Hb_oxy/"
+            1:length(l_hboxy_filt) %>% map(~write.table(l_hboxy_filt[[.x]], file = paste0(path, names(l_hboxy_filt[.x]), ".txt")))
             
             
-            ## function to plot fast fourier transform of signal
-              # df = df_hboxy_filt_pass or df_hbtot_filt_pass (NIRS signal + sg filter + high pass)
-              # num = patient number to plot
-              # zoom = look at overall FFT (FALSE) or freq range of interest (0-1.5 Hz; TRUE)
-       
-      library(forecast)     
-            
-            f_plot_fft <- function(df, num, zoom = TRUE) {
-              
-              series <- df %>% filter(number == num) %>% .$sg_filt
-              sampling_rate <- 1/.02
-              
-              acf <- acf(series, type = "covariance")
-              ft <- fft(acf$acf)
-              freq <- (1:nrow(ft))*sampling_rate/nrow(ft)
-              amp <- (Re(ft)^2 + Im(ft)^2)^.5 # amplitude is magnitude
-              PSD <- cbind.data.frame(freq, amp) %>% as_tibble()
-              
-              # plot
-              p <- PSD %>% 
-                ggplot(aes(x = freq, y = amp)) + 
-                geom_line() +
-                
-                geom_vline(xintercept = 0.01, color = "red", lty = 2) +
-                geom_vline(xintercept = 0.15, color = "red", lty = 2) +
-                
-                theme_bw()
-              
-              ifelse(zoom == TRUE, p <- p + xlim(0, 1), p <- p)
-              
-              p
-              
-            }
+      # MatLab scripts calculate moving average (across 10 points) and perform bandpass (or highpass) filtering
             
             
-            f_plot_fft(df_thc_filt_pass, 1, zoom = TRUE)  
-            f_plot_fft(df_hbtot_filt_pass_muscle, 1, zoom = FALSE)  
             
-
-            
-### SAVE THE FILTERED SIGNALS
-            
-      # This is important so you don't have to repeat all the signal pre-processing before running the DFA
-            
-            # e.g.
-            save(df_hbtot_filt, df_hbtot_filt_pass, 
-                 df_hboxy_filt, df_hboxy_filt_pass,
-                 file = "filtered_signals.Rdata")
-            
-            
-    df_hbtot_filt_pass_muscle %>% filter(Status == "UM") %>% count(number, subject_id)        
-    df_thc_filt_pass %>% filter(Status == "UM") %>% count(number, subject_id)
-
-    
     
 # Detrended fluctuation analysis ------------------------------------------
 
@@ -352,7 +253,17 @@
             
       # If not already in your environment, load the processed signals
             
-      load("filtered_signals.Rdata")
+          # Hb_tot
+            hbtot_path <- "Data/filtered_signals/0.2s_mean_0.001_1_filt/Hb_tot"
+            hbtot_files <- list.files(hbtot_path)
+            l_hbtot_filt <- 1:length(hbtot_files) %>% purrr::map(~read.table(paste0(hbtot_path, sep = "/", hbtot_files[.x])))
+            names(l_hbtot_filt) <- sub("*.txt", "", hbtot_files)
+            
+          # Hb_oxy
+            hboxy_path <- "Data/filtered_signals/0.2s_mean_0.001_1_filt/Hb_oxy"
+            hboxy_files <- list.files(hboxy_path)
+            l_hboxy_filt <- 1:length(hboxy_files) %>% purrr::map(~read.table(paste0(hboxy_path, sep = "/", hboxy_files[.x])))
+            names(l_hboxy_filt) <- sub("*.txt", "", hboxy_files)
             
            
              
