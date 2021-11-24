@@ -207,26 +207,30 @@
       kruskal.test(short_a ~ Status, df_hboxy_all_alphas)
       
 
-  # long
+  # long (use this: Chen et al 2002)
       
       # Hb_tot
-      df_hbtot_all_alphas %>% 
+      p_hbtot_long_a <- df_hbtot_all_alphas %>% 
         ggplot(aes(x = Status, y = long_a, color = Status)) +  
         geom_half_point(shape = 1) +
         geom_half_boxplot() +
+        labs(y = "alpha", x = "") +
         ylim(0, 1.5) +
-        theme_bw()
+        theme_bw() +
+        theme(legend.position = "none")
       
       kruskal.test(long_a ~ Status, df_hbtot_all_alphas)
       DunnTest(long_a ~ Status, df_hbtot_all_alphas)
       
       # Hb_oxy
-      df_hboxy_all_alphas %>% 
+      p_hboxy_long_a <- df_hboxy_all_alphas %>% 
         ggplot(aes(x = Status, y = long_a, color = Status)) +  
         geom_half_point(shape = 1) +
         geom_half_boxplot() +
+        labs(y = "alpha", x = "") +
         ylim(0, 1.5) +
-        theme_bw()
+        theme_bw() +
+        theme(legend.position = "none")
       
       kruskal.test(long_a ~ Status, df_hboxy_all_alphas)
       
@@ -262,4 +266,28 @@
       wilcox.test(wn_alpha, cm_hbtot_long_alpha)
   
   
+      
+
+# export results ----------------------------------------------------------
+
+
+      # plots
+      pdf(file = "Outputs/bp_filtered_signal_alphas.pdf")
+      p_hbtot_long_a
+      p_hboxy_long_a
+      dev.off()
+      
+      # csv
+       
+      df_bp_alphas <- df_hbtot_all_alphas %>% 
+        rename_with(~paste0("hbtot_", .), all_of(1:4)) %>% 
+        left_join(df_hboxy_all_alphas %>% 
+                    rename_with(~paste0("hboxy_", .), all_of(1:4))) %>% 
+        select(c(subject_id, Status, everything()))
+      
+      write.csv(df_bp_alphas, file = "Data/bandpass_filtered_alphas.csv")
+
+
+      
+      
   
