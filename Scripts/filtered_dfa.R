@@ -25,7 +25,7 @@
   
 
 
-# format data -------------------------------------------------------------
+# format data & run DFA -------------------------------------------------------------
 
   
   # Hb_tot
@@ -45,6 +45,8 @@
   
     require(doParallel)
     registerDoParallel()
+    
+    source("Scripts/dfa_functions.R")
     
     sampling_freq <- 50
     l_dfa_hbtot <- 1:length(l_hbtot_filt) %>% purrr::map(~f_dfa(l_hbtot_filt[[.x]], 10))
@@ -215,6 +217,7 @@
         geom_half_point(shape = 1) +
         geom_half_boxplot() +
         labs(y = "alpha", x = "") +
+        ggtitle("Hb_tot") +
         ylim(0, 1.5) +
         theme_bw() +
         theme(legend.position = "none")
@@ -228,24 +231,29 @@
         geom_half_point(shape = 1) +
         geom_half_boxplot() +
         labs(y = "alpha", x = "") +
+        ggtitle("Hb_oxy") +
         ylim(0, 1.5) +
         theme_bw() +
         theme(legend.position = "none")
       
       kruskal.test(long_a ~ Status, df_hboxy_all_alphas)
+      DunnTest(long_a ~ Status, df_hboxy_all_alphas)
+      
       
   # medians
+      df_hbtot_all_alphas %>% 
+        group_by(Status) %>% 
+        summarise(median(overall_a, na.rm = TRUE),
+                  median(short_a, na.rm = TRUE),
+                  median(long_a, na.rm = TRUE))
+      
       df_hboxy_all_alphas %>% 
         group_by(Status) %>% 
         summarise(median(overall_a, na.rm = TRUE),
                   median(short_a, na.rm = TRUE),
                   median(long_a, na.rm = TRUE))
       
-      df_hbtot_all_alphas %>% 
-        group_by(Status) %>% 
-        summarise(median(overall_a, na.rm = TRUE),
-                  median(short_a, na.rm = TRUE),
-                  median(long_a, na.rm = TRUE))
+      
       
   
 

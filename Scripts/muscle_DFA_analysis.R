@@ -22,6 +22,9 @@
     # check through patient files, make sure there are no duplicates of patients & session numbers
     
     # read in .txt files - output is a list of tibbles, where each tibble is a patient reading
+    require(doParallel)
+    registerDoParallel()
+    
     l_raw_data <- 1:length(my_files) %>% 
       purrr::map(~read.delim2(file = my_files[.x], header = FALSE, sep = "\t") %>% as_tibble()) 
     
@@ -1867,165 +1870,68 @@
     
     
     
-### SAVITZY-GOLAY SIGNAL SMOOTHING
+### EXPORT TO MATLAB FOR SIGNAL SMOOTHING & FILTERING
     
     
-    # For some reason, the Oxiplex removes milliseconds after a few seconds. Add milliseconds back in to Time
+    # add milliseconds in to Time
     
-    # Hb_tot
+    # THC
     df_hbtot_filt <- df_hbtot_filt %>% 
       group_by(number, Time) %>% 
       left_join(count(.)) %>% 
       mutate(Time = ifelse(n == 49, Time + 0.02*row_number(), Time + 0.02*(row_number() - 1))) %>% 
       dplyr::select(-n)
+    
+    # O2 sat
+    df_hboxy_filt <- df_hboxy_filt %>% 
+      group_by(number, Time) %>% 
+      left_join(count(.)) %>% 
+      mutate(Time = ifelse(n == 49, Time + 0.02*row_number(), Time + 0.02*(row_number() - 1))) %>% 
+      dplyr::select(-n)
+    
+    # export to .txt to filter in Matlab
+    
+    # Hb_tot
+    l_hbtot_filt <- df_hbtot_filt %>% split(df_hbtot_filt$number)
+    hbtot_names <- df_hbtot_filt$subject_id %>% unique()
+    names(l_hbtot_filt) <- hbtot_names
+    path <- "Data/signal_segments/muscle/Hb_tot/"
+    1:length(l_hbtot_filt) %>% map(~write.table(l_hbtot_filt[[.x]], file = paste0(path, names(l_hbtot_filt[.x]), ".txt")))
     
     # Hb_oxy
-    df_hboxy_filt <- df_hboxy_filt %>% 
-      group_by(number, Time) %>% 
-      left_join(count(.)) %>% 
-      mutate(Time = ifelse(n == 49, Time + 0.02*row_number(), Time + 0.02*(row_number() - 1))) %>% 
-      dplyr::select(-n)
-    
-    
-    # 4th order savitzy-golay filter
-    
-    library(signal)
-    
-    # Hb_tot
-    df_hbtot_filt <- df_hbtot_filt %>% 
-      group_by(number) %>% 
-      mutate(sg_filt = sgolayfilt(Hb_tot, p = 4)) %>% 
-      ungroup()
-    
-    # plot to visualize smoothing
-    df_hbtot_filt %>% dplyr::filter(number == 10) %>% # can pick any arbitrary time segment to look at
-      ggplot(aes(x = Time)) +
-      geom_line(aes(y = Hb_tot)) +
-      geom_line(aes(y = sg_filt), color = "red")
-    
-    # Hb_oxy 
-    df_hboxy_filt <- df_hboxy_filt %>% 
-      group_by(number) %>% 
-      mutate(sg_filt = sgolayfilt(Hb_oxy, p = 3)) %>% 
-      ungroup()
-    
-    # plot
-    df_hboxy_filt %>% dplyr::filter(number == 10 & Time < 1500 & Time > 1490) %>% 
-      ggplot(aes(x = Time)) +
-      geom_line(aes(y = Hb_oxy)) +
-      geom_line(aes(y = sg_filt), color = "red")
-    
-    
-    
-### HIGH-PASS SIGNAL FILTERING
-    
-    
-    # use a high-pass filter to remove anything below 0.01 Hz (associated with head displacements and motion noise) 
-    # NOTE: we did NOT use this step in the 2021 paper
-    
-    
-    # load required libraries
-    library(seewave)
-    library(data.table)
-    
-    # Hb_tot
-    l_hbtot_filt <- df_hbtot_filt %>% split(df_hbtot_filt$number) # split filtered signals into list of tibbles
-    sampling_rate <- 50 # again, may need to adjust with different sampling rates
-    butter_filter <- butter(4, W = 0.01/(sampling_rate/2), type = "high") # create butter filter
-    l_hbtot_filt_pass <- 1:length(l_hbtot_filt) %>% purrr::map(~mutate(l_hbtot_filt[[.x]], high_pass = filtfilt(butter_filter, sg_filt))) # apply to SG filtered signal
-    
-    df_hbtot_filt_pass <- rbindlist(l_hbtot_filt_pass) %>% as_tibble() # combing again into tibble
-    
-    # repeat for Hb_oxy
     l_hboxy_filt <- df_hboxy_filt %>% split(df_hboxy_filt$number)
-    l_hboxy_filt_pass <- 1:length(l_hboxy_filt) %>% purrr::map(~mutate(l_hboxy_filt[[.x]], high_pass = filtfilt(butter_filter, sg_filt)))
+    hboxy_names <- df_hboxy_filt$subject_id %>% unique()
+    names(l_hboxy_filt) <- hboxy_names
+    path <- "Data/signal_segments/muscle/Hb_oxy/"
+    1:length(l_hboxy_filt) %>% map(~write.table(l_hboxy_filt[[.x]], file = paste0(path, names(l_hboxy_filt[.x]), ".txt")))
     
-    df_hboxy_filt_pass <- rbindlist(l_hboxy_filt_pass) %>% as_tibble()
-    
-    
-    
-### FAST-FOURIER TRANSFORM
-    
-    
-    # perform and visualize the FFT for each signal. we didn't really use this for the 2021 paper either
-    
-    
-    ## function to plot fast fourier transform of signal
-    # df = df_hboxy_filt_pass or df_hbtot_filt_pass (NIRS signal + sg filter + high pass)
-    # num = patient number to plot
-    # zoom = look at overall FFT (FALSE) or freq range of interest (0-1.5 Hz; TRUE)
-    
-    
-    f_plot_fft <- function(df, num, zoom = TRUE) {
-      
-      # compute fft
-      
-      fft <- df %>% dplyr::filter(number == num) %>% .$sg_filt %>% fft() 
-      
-      # determine power spectra
-      
-      freq <- 50  #sample frequency in Hz 
-      duration <- df %>% dplyr::filter(number == num) %>% nrow()/freq # length of signal in seconds
-      amo <- Mod(fft) # frequency "amounts" (power)
-      freqvec <- 1:length(amo) # associated frequency
-      
-      freqvec <- freqvec/duration # normalize to signal length to get frequency ranges
-      df <- tibble(freq = freqvec, power = amo) # create df assigning power to each frequency
-      df <- df[(1:as.integer(0.5*freq*duration)),] # select rows within Nyquist frequency
-      
-      # plot power spectra
-      p <- df %>% dplyr::filter(power < 4000 & freq < ifelse(zoom == TRUE, 1.5, max(freq))) %>% 
-        
-        ggplot(aes(x = freq, y = power)) + 
-        geom_line(stat = "identity") +
-        geom_vline(xintercept = 0.01, lty = 2, color = "red") +
-        
-        theme_bw() +
-        
-        theme(axis.text.x = element_text(angle = 45, hjust = 0.9))
-      
-      ifelse(zoom == TRUE, p <- p + scale_x_continuous(breaks = seq(0, 1.5, 0.1)), p <- p)
-      
-      p
-      
-    }
-    
-    
-    f_plot_fft(df_hboxy_filt_pass, 10, zoom = FALSE)  
-    f_plot_fft(df_hbtot_filt_pass, 2, zoom = TRUE)  
-    
-    
-    
-### SAVE THE FILTERED SIGNALS
-    
-    # This is important so you don't have to repeat all the signal pre-processing before running the DFA
-    
-    df_hbtot_filt_muscle <- df_hbtot_filt
-    df_hbtot_filt_pass_muscle <- df_hbtot_filt_pass
-    df_hboxy_filt_muscle <- df_hboxy_filt
-    df_hboxy_filt_pass_muscle <- df_hboxy_filt_pass
-    
-    # e.g.
-    save(df_hbtot_filt_muscle, df_hbtot_filt_pass_muscle, 
-         df_hboxy_filt_muscle, df_hboxy_filt_pass_muscle,
-         file = "filtered_muscle_signals.Rdata")
-
     
 
-    
+
     
         
 # Detrended fluctuation analysis ------------------------------------------
     
     
-### LOAD IN DATA
+### LOAD IN FILTERED SIGNAL DATA
+    require(tidyverse)
+    require(purrr)
+    require(data.table)
     
-    # If not already in your environment, load the processed signals
+    # Hb_tot
+    hbtot_path <- "Data/filtered_signals/muscle_0.2s_mean_0.001_1_filt/Hb_tot"
+    hbtot_files <- list.files(hbtot_path)
+    l_hbtot_filt <- 1:length(hbtot_files) %>% purrr::map(~read.table(paste0(hbtot_path, sep = "/", hbtot_files[.x])))
+    names(l_hbtot_filt) <- sub("*.txt", "", hbtot_files)
     
-    load("filtered_muscle_signals.Rdata")
+    # Hb_oxy
+    hboxy_path <- "Data/filtered_signals/muscle_0.2s_mean_0.001_1_filt/Hb_oxy"
+    hboxy_files <- list.files(hboxy_path)
+    l_hboxy_filt <- 1:length(hboxy_files) %>% purrr::map(~read.table(paste0(hboxy_path, sep = "/", hboxy_files[.x])))
+    names(l_hboxy_filt) <- sub("*.txt", "", hboxy_files)
     
     
-    
+
 ### COMPUTE CUMULATIVE SUM OF EACH SIGNAL
     
     
@@ -2033,242 +1939,86 @@
     
   ## Hb_tot
     
-    # create list, where each object is a patient
-    l_hbtot_filt_pass_muscle <- df_hbtot_filt_pass_muscle %>% split(f = df_hbtot_filt_pass_muscle$number)
-    
-    # take the mean of each filtered signal
-    l_means_muscle <- 1:length(l_hbtot_filt_pass_muscle) %>% purrr::map(~mean(l_hbtot_filt_pass_muscle[[.x]]$sg_filt, na.rm = TRUE))
-    
-    # subtract the mean and take the cumulative sum
-    l_hbtot_cumsum_muscle <- 1:length(l_means_muscle) %>% purrr::map(~mutate(l_hbtot_filt_pass_muscle[[.x]], 
-                                                                             mean = l_means_muscle[[.x]]))
-    df_hbtot_cumsum_muscle <- rbindlist(l_hbtot_cumsum_muscle) %>% as_tibble()
-    
-    df_hbtot_cumsum_muscle <- df_hbtot_cumsum_muscle %>% 
-      mutate(subtract_mean = sg_filt - mean) %>% 
-      group_by(number) %>% 
-      mutate(cumsum = cumsum(subtract_mean)) %>% 
-      ungroup()
-    
-    # plot
-    df_hbtot_cumsum_muscle %>% dplyr::filter(number == 1) %>% 
-      ggplot(aes(x = Time)) +
-      geom_line(aes(y = cumsum)) +
-      geom_line(aes(y = sg_filt), color = "red") +
-      
-      theme_bw() +
-      ggtitle("Cumulative sum of Savitzy-Golar smoothed signal")
+    l_hbtot_filt <- 1:length(l_hbtot_filt) %>% 
+      purrr::map(~as_tibble(l_hbtot_filt[[.x]]) %>%
+                   mutate(Time = seq(0, nrow(.)/50, by = 0.02)[-1]) %>% 
+                   dplyr::rename("hbtot_filt" = "V1") %>% 
+                   mutate(subject_id = names(l_hbtot_filt[.x])) %>% 
+                   mutate(mean = mean(hbtot_filt),
+                          subtract_mean = hbtot_filt - mean,
+                          cumsum = cumsum(subtract_mean))) %>% 
+      rbindlist() %>% 
+      as_tibble() %>% 
+      group_by(subject_id) %>% 
+      filter(grepl("1$", subject_id), n() > 200*50) %>% # remove any signals that aren't from the first visit & at least 200s long
+      split(.$subject_id)
     
     
   ## Hb_oxy
     
-    # create list, where each object is a patient
-    l_hboxy_filt_pass_muscle <- df_hboxy_filt_pass_muscle %>% split(f = df_hboxy_filt_pass_muscle$number)
-    
-    # take the mean of each filtered signal
-    l_means_muscle <- 1:length(l_hboxy_filt_pass_muscle) %>% purrr::map(~mean(l_hboxy_filt_pass_muscle[[.x]]$sg_filt, na.rm = TRUE))
-    
-    # subtract the mean and take the cumulative sum
-    l_hboxy_cumsum_muscle <- 1:length(l_means_muscle) %>% purrr::map(~mutate(l_hboxy_filt_pass_muscle[[.x]], 
-                                                                             mean = l_means_muscle[[.x]]))
-    df_hboxy_cumsum_muscle <- rbindlist(l_hboxy_cumsum_muscle) %>% as_tibble()
-    
-    df_hboxy_cumsum_muscle <- df_hboxy_cumsum_muscle %>% 
-      mutate(subtract_mean = sg_filt - mean) %>% 
-      group_by(number) %>% 
-      mutate(cumsum = cumsum(subtract_mean)) %>% 
-      ungroup()
-    
-    # plot
-    df_hboxy_cumsum_muscle %>% dplyr::filter(number == 1) %>% 
-      ggplot(aes(x = Time)) +
-      geom_line(aes(y = cumsum)) +
-      geom_line(aes(y = sg_filt), color = "red") +
-      
-      theme_bw() +
-      ggtitle("Cumulative sum of Savitzy-Golar smoothed signal")
+    l_hboxy_filt <- 1:length(l_hboxy_filt) %>% 
+      purrr::map(~as_tibble(l_hboxy_filt[[.x]]) %>%
+                   mutate(Time = seq(0, nrow(.)/50, by = 0.02)[-1]) %>% 
+                   dplyr::rename("hboxy_filt" = "V1") %>% 
+                   mutate(subject_id = names(l_hboxy_filt[.x])) %>% 
+                   mutate(mean = mean(hboxy_filt),
+                          subtract_mean = hboxy_filt - mean,
+                          cumsum = cumsum(subtract_mean))) %>% 
+      rbindlist() %>% 
+      as_tibble() %>% 
+      group_by(subject_id) %>% 
+      filter(grepl("1$", subject_id), n() > 200*50) %>% 
+      split(.$subject_id)
     
     
     
-### WRITE DFA FUNCTIONS
+### RUN DFA
     
     
-    # write individual DFA functions, then combine into one big function to run at once
+    source("Scripts/dfa_functions.R")
     
     
-  ## Split into windows
-    
-    # determine window lengths
-    
-    # criteria (Hardstone et al 2012):
-    # lower end = at least 4 samples (linear detrending will perform poorly with less points)
-    # high end = <10% of signal length (anything higher is more noisy bc less than 10 windows to average)
-    # need to be equally spaced on a log10 scale (gives equal weight to time scales when fitting  a line)
-    # 50% overlap between windows? (used to increase number of windows; Hardstone et al 2012), or non-overlapping (Tagliazucchi et al 2016)
-    
-    # function: will determine window lengths based on above criteria for a given df
-    # input: df = df_hboxy_cumsum or df_hbtot_cumsum, num_of_windows = number of windows desired (default = 10)
-    # output: vector of numbers indicating window lengths (window_length)
-    
-    f_window_sizes <- function(df, num_of_windows = 10) {
-      
-      low_end <- 0.1
-      high_end <- floor(nrow(df)/50*0.10) # take 10% of signal length & round down to nearest integer
-      log_size_range <- log10(high_end) - log10(low_end)
-      log_step_size <- log_size_range/num_of_windows # divide by number of windows desired
-      
-      10^(seq(log10(low_end), log10(high_end), by = log_step_size))
-      
-      
-    }
-    
-    # function: split signal by window sizes (window length in s)
-    # input: df = df_hboxy_cumsum or df_hbtot_cumsum, window_length = vector of window sizes (output from above function: window_length)
-    # output: list of lists of tibbles - outer list = window length, inner list = signal broken up into tibbles of that window length (l_splits)
-    
-    f_split_windows <- function(df, window_length) {
-      
-      window_size <- window_length*50
-      signal_length <- nrow(df)
-      reps <- rep(1:ceiling(signal_length/window_size), each = window_size)[1:signal_length]
-      list <- df %>% split(reps) 
-      1:length(list) %>% purrr::map(~mutate(list[[.x]], window_size = window_length))
-      
-    }
-    
-    
-  ## Detrending: remove the linear trend using a least squares fit
-    
-    # function: compute linear least squares regression line for all windows
-    # input: output from f_split_windows (l_splits)
-    # output: list of lists of linear models for each window (l_lms)
-    
-    f_lm_least_squares <- function(l_splits) {
-      
-      1:length(l_splits) %>% purrr::map(~lm(cumsum ~ Time, data = l_splits[[.x]]))
-      
-    }
-    
-    # function: detrend by calculating residuals
-    # input: output from f_lm_least_squares (l_lms)
-    # output: list of lists of tibbles containing the residuals at each time point from the linear models (l_resids)
-    
-    f_calc_residuals <- function(l_splits, l_lms) {
-      
-      1:length(l_lms) %>% purrr::map(~tibble(window_size = l_splits[[.x]]$window_size, 
-                                             Time = l_splits[[.x]]$Time, 
-                                             residuals = l_lms[[.x]]$residuals))  
-      
-    }
-    
-    
-  ## Calculate the standard deviation ("fluctuation") of the detrended line
-    
-    # function: calculate the standard deviation of each line
-    # input: output from f_calc_residuals (l_resids)
-    # output: list of tibbles including window size, number, and fluctuation (l_fluct)
-    
-    f_calc_fluct <- function(l_resids) {
-      
-      1:length(l_resids) %>% 
-        purrr::map(~tibble(window_size = l_resids[[.x]]$window_size, 
-                           window_num = .x, 
-                           fluctuation = sd(l_resids[[.x]]$residuals))) %>% 
-        rbindlist() %>% 
-        as_tibble()  
-      
-    }
-    
-    # calculate average fluctuation for each window size  
-    # input: output from f_calc_fluct (l_fluct)
-    # output: tibble containing window size with its corresponding average standard deviation (df_avg_fluct)
-    
-    f_calc_avg_fluct <- function(l_fluct) {
-      
-      1:length(l_fluct) %>% purrr::map(~tibble(window_size = l_fluct[[.x]]$window_size, 
-                                               avg_fluctuation = mean(l_fluct[[.x]]$fluctuation, na.rm = TRUE)) %>% 
-                                         unique()) %>% 
-        rbindlist() %>% as_tibble()
-      
-    }
-    
-    
-  ##  Find line of best fit and extract alpha
-    
-    alpha <- lm(log10(avg_fluctuation) ~ log10(window_size), data = df_avg_fluct) %>% .$coefficients %>% .[2]
-    
-    
-    
-  ### Once you've run/loaded all these functions, combine into one DFA function!
-    # input: df = df_hbtot_cumsum or df_hboxy_cumsum, num_of_windows = number of desired windows
-    # output: list with two items: the first is a df_avg_fluct, the second is the associated alpha value
-    
-    f_dfa <- function(df, num_of_windows) {
-      
-      
-      # determine the window lengths needed for n number of windows equally spaced on a log scale across the signal
-      window_lengths <- f_window_sizes(df, num_of_windows)
-      
-      # split df into a list of lists, where length of the overall list is the number of window lengths, and each list item contains windows of that length
-      l_splits <- window_lengths %>% purrr::map(~f_split_windows(df, .x))
-      names(l_splits) <- window_lengths
-      
-      # compute linear least squares regression line for all windows
-      l_lms <- 1:length(l_splits) %>% purrr::map(~f_lm_least_squares(l_splits[[.x]]))
-      names(l_lms) <- window_lengths
-      
-      # detrend by calculating and subtractin out residuals
-      l_resids <- 1:length(l_splits) %>% purrr::map(~f_calc_residuals(l_splits[[.x]], l_lms[[.x]]))
-      names(l_resids) <- window_lengths
-      
-      # calculate fluctuations (standard deviation) for each window per window size 
-      l_fluct <- 1:length(l_resids) %>% purrr::map(~f_calc_fluct(l_resids[[.x]]) %>% unique())
-      
-      # calculate average fluctuation for each window size  
-      df_avg_fluct <- f_calc_avg_fluct(l_fluct)
-      
-      # find line of best fit and extract alpha
-      alpha <- lm(log10(avg_fluctuation) ~ log10(window_size), data = df_avg_fluct) %>% .$coefficients %>% .[2]
-      
-      # return variables of interest
-      return(list(df_avg_fluct, alpha))
-      
-      
-      
-    }
-    
-    
-    # to run for all patients at once: create list of df cumsum, where each object is a patient
-    l_hbtot_cumsum_muscle <- df_hbtot_cumsum_muscle %>% split(f = df_hbtot_cumsum_muscle$number)
-    l_hboxy_cumsum_muscle <- df_hboxy_cumsum_muscle %>% split(f = df_hboxy_cumsum_muscle$number)
-    
-    
-    # repeat for all patients!!
-    
-    library(doParallel) # runs faster in parallel
+    require(doParallel) # runs faster in parallel
     registerDoParallel()
     
     
-    l_dfa_hbtot_muscle <- 1:length(l_hbtot_cumsum_muscle) %>% purrr::map(~f_dfa(l_hbtot_cumsum_muscle[[.x]], num_of_windows = 10))
-    l_dfa_hboxy_muscle <- 1:length(l_hboxy_cumsum_muscle) %>% purrr::map(~f_dfa(l_hboxy_cumsum_muscle[[.x]], num_of_windows = 10))
+    l_dfa_hbtot_muscle <- 1:length(l_hbtot_filt) %>% purrr::map(~f_dfa(l_hbtot_filt[[.x]], num_of_windows = 10))
+    l_dfa_hboxy_muscle <- 1:length(l_hboxy_filt) %>% purrr::map(~f_dfa(l_hboxy_filt[[.x]], num_of_windows = 10))
     
     
     # would be wise to save DFA results here because it takes a while to run
-    save(l_dfa_hbtot_muscle, l_dfa_hboxy_muscle, file = "muscle_dfa_results.Rdata")   
+    save(l_dfa_hbtot_muscle, l_dfa_hboxy_muscle, file = "bandpass_filtered_muscle_dfa_results.Rdata")   
     
     
     
     
 ### SECOND ORDER DETRENDING
     
-    # in some instances, it is necessary to perform second-order detrending on the log10(avg_fluctuation) vs log10(window_size)
-    # because there are differences between the long- vs short-range correlations. (Seleznov et al 2019) 
-    # To determine if this is necessary, inspect individual signals. signals that require second-order detrending have a break point or a curve.
+    # plot results of each signal
     
-    
+      # Hb_tot
+      1:length(l_dfa_hbtot_muscle) %>% 
+        map(~l_dfa_hbtot_muscle[[.x]][[1]] %>% 
+              mutate(number = .x)) %>% 
+        rbindlist() %>% as_tibble() %>% 
+        
+        ggplot(aes(x = log10(window_size), y = log10(avg_fluctuation))) +
+        geom_point() +
+        facet_wrap(~ number)
+      
+      # Hb_oxy
+      1:length(l_dfa_hboxy_muscle) %>% 
+        map(~l_dfa_hboxy_muscle[[.x]][[1]] %>% 
+              mutate(number = .x)) %>% 
+        rbindlist() %>% as_tibble() %>% 
+        
+        ggplot(aes(x = log10(window_size), y = log10(avg_fluctuation))) +
+        geom_point() +
+        facet_wrap(~ number)
+      
+
     # Write function to determine the breakpoint in the curve and calculate the short- vs long-range alpha values.
-    # If no breakpoint is detected, the function will return the original alpha value (no second-order detrending required)
-    
+
     # load required library
     library(segmented)
     
@@ -2276,113 +2026,159 @@
     # input: l_dfa (output from f_dfa function across patients)
     # output: a numeric containing the alpha value representing long-range correlations
     
-    f_segment_slope <- function(l_dfa) {
+    f_segment_slope <- function(l_dfa, filter_thresh = 0.001) {
       
-      df <- l_dfa[[1]] %>% mutate(log10_avg_fluct = log10(avg_fluctuation), log10_window_size = log10(window_size))
+      df <- l_dfa[[1]] %>% 
+        mutate(log10_avg_fluct = log10(avg_fluctuation), log10_window_size = log10(window_size)) #%>% 
+      #dplyr::filter(window_size < 1/filter_thresh)
       fit <- lm(log10_avg_fluct ~ log10_window_size, data = df) 
       segfit <- segmented(fit)
       
       if(length(segfit$coefficients) == 2){
         
-        a2 <- segfit$coefficients[2]
+        short_a <- NA
+        long_a <- NA
+        breakpoint <- NA
         
       } else if (length(segfit$coefficients) == 4) {
         
-        a2 <- slope(segfit)$log10_window_size[2,1]
+        short_a <- slope(segfit)$log10_window_size[1,1]
+        long_a <- slope(segfit)$log10_window_size[2,1]
+        breakpoint <- summary(segfit)$psi[2]
         
       }
       
-      return(a2)
+      return(tibble(overall_a = l_dfa[[2]], short_a = short_a, long_a = long_a, breakpoint = breakpoint))
       
     }
     
+    df_hbtot_all_alphas_muscle <- 1:length(l_dfa_hbtot_muscle) %>% 
+      purrr::map(~f_segment_slope(l_dfa_hbtot_muscle[[.x]])) %>% 
+      rbindlist() %>% 
+      as_tibble()
     
-  # Perform function on DFA output for Hb_tot and Hb_oxy, combine all results into one DF
+    df_hboxy_all_alphas_muscle <- 1:length(l_dfa_hboxy_muscle) %>% 
+      purrr::map(~f_segment_slope(l_dfa_hboxy_muscle[[.x]])) %>% 
+      rbindlist() %>% 
+      as_tibble()
     
-    # Hb_tot
-    hbtot_alphas_muscle <- 1:length(l_dfa_hbtot_muscle) %>% purrr::map(~l_dfa_hbtot_muscle[[.x]][[2]]) %>% unlist()
-    
-    l_hbtot_second_alpha_muscle <- 1:length(l_dfa_hbtot_muscle) %>% purrr::map(~f_segment_slope(l_dfa_hbtot_muscle[[.x]]))
-    hbtot_second_alpha_muscle <- 1:length(l_dfa_hbtot_muscle) %>% purrr::map(~f_segment_slope(l_dfa_hbtot_muscle[[.x]])) %>% unlist()
-    
-    # combine dfa results into df
-    df_hbtot_dfa_muscle <- df_hbtot_cumsum_muscle %>% 
-      count(number, Status) %>% 
-      dplyr::select(-n) %>% 
-      mutate(alpha = hbtot_alphas_muscle, 
-             second_alpha = hbtot_second_alpha_muscle,
-             Status = as.factor(Status))
-    
-    # Hb_oxy
-    hboxy_alphas_muscle <- 1:length(l_dfa_hboxy_muscle) %>% purrr::map(~l_dfa_hboxy_muscle[[.x]][[2]]) %>% unlist()
-    
-    l_hboxy_second_alpha_muscle <- 1:length(l_dfa_hboxy_muscle) %>% purrr::map(~f_segment_slope(l_dfa_hboxy_muscle[[.x]]))
-    hboxy_second_alpha_muscle <- 1:length(l_dfa_hboxy_muscle) %>% purrr::map(~f_segment_slope(l_dfa_hboxy_muscle[[.x]])) %>% unlist()
-    
-    # combine dfa results into df
-    df_hboxy_dfa_muscle <- df_hboxy_cumsum_muscle %>% 
-      count(number, Status) %>% 
-      dplyr::select(-n) %>% 
-      mutate(alpha = hboxy_alphas_muscle, 
-             second_alpha = hboxy_second_alpha_muscle,
-             Status = as.factor(Status))
 
-    
-    
-    
     
     
 # plots and statistical analyses ------------------------------------------
     
     
-    library(DescTools)
+    require(DescTools)
+    require(gghalves)
     
     # plot alphas for Hb_tot and Hb_oxy
     
     
+    # overall
+    
     # Hb_tot
+    df_hbtot_all_alphas_muscle <- df_hbtot_all_alphas_muscle %>% 
+      mutate(subject_id = sub("*.txt", "", names(l_hbtot_filt)),
+             Status = substr(subject_id, start = 7, stop = 8),
+             Status = ifelse(Status == "HV", "HC", Status),
+             Status = factor(Status, levels = c("HC", "UM", "CM"))) %>% 
+      filter(!is.na(Status))
     
-    # plot
-    df_hbtot_dfa_muscle %>% 
-      ggplot(aes(x = Status, y = alpha)) +
-      geom_violin(aes(color = Status)) +
-      geom_jitter(position = position_jitter(0.2), shape = 1) +
-      stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
-      
-      labs(y = "alpha") +
-      ggtitle("Muscle hemoglobin concentration alpha") +
-      
-      theme_bw() +
-      theme(legend.position = "none")
+    df_hbtot_all_alphas_muscle %>% 
+      ggplot(aes(x = Status, y = overall_a, color = Status)) +  
+      geom_half_point(shape = 1) +
+      geom_half_boxplot() +
+      ylim(0, 1.5) +
+      theme_bw()
     
-    # test for differences
-    df_hbtot_dfa_muscle %>% group_by(Status) %>% summarise(median = median(alpha))
-    kruskal.test(alpha ~ Status, data = df_hbtot_dfa_muscle)
-    DunnTest(alpha ~ Status, data = df_hbtot_dfa_muscle)
-    
-    
+    kruskal.test(overall_a ~ Status, df_hbtot_all_alphas_muscle)
+    # DunnTest(overall_a ~ Status, df_hbtot_all_alphas_muscle)
     
     # Hb_oxy
+    df_hboxy_all_alphas_muscle <- df_hboxy_all_alphas_muscle %>% 
+      mutate(subject_id = sub("*.txt", "", names(l_hboxy_filt)),
+             Status = substr(subject_id, start = 7, stop = 8),
+             Status = ifelse(Status == "HV", "HC", Status),
+             Status = factor(Status, levels = c("HC", "UM", "CM"))) %>% 
+      filter(!is.na(Status))
     
-    # plot
-    df_hboxy_dfa_muscle %>% 
-      ggplot(aes(x = Status, y = alpha)) +
-      geom_violin(aes(color = Status)) +
-      geom_jitter(position = position_jitter(0.2), shape = 1) +
-      stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
-      
-      labs(y = "alpha") +
-      ggtitle("Muscle hemoglobin oxygen saturation alpha") +
-      
+    df_hboxy_all_alphas_muscle %>% 
+      ggplot(aes(x = Status, y = overall_a, color = Status)) +  
+      geom_half_point(shape = 1) +
+      geom_half_boxplot() +
+      ylim(0, 1.5) +
+      theme_bw()
+    
+    kruskal.test(overall_a ~ Status, df_hboxy_all_alphas_muscle)
+    # DunnTest(overall_a ~ Status, df_hboxy_all_alphas_muscle_0.001_1)
+    
+    # short
+    
+    # Hb_tot
+    df_hbtot_all_alphas_muscle %>% 
+      ggplot(aes(x = Status, y = short_a, color = Status)) +  
+      geom_half_point(shape = 1) +
+      geom_half_boxplot() +
+      ylim(0, 2) +
+      theme_bw()
+    
+    kruskal.test(short_a ~ Status, df_hbtot_all_alphas_muscle)
+    # DunnTest(short_a ~ Status, df_hbtot_all_alphas_muscle)
+    
+    # Hb_oxy
+    df_hboxy_all_alphas_muscle %>% 
+      ggplot(aes(x = Status, y = short_a, color = Status)) +  
+      geom_half_point(shape = 1) +
+      geom_half_boxplot() +
+      ylim(0, 2) +
+      theme_bw()
+    
+    kruskal.test(short_a ~ Status, df_hboxy_all_alphas_muscle)
+    DunnTest(short_a ~ Status, df_hboxy_all_alphas_muscle)
+    
+    # long (use this: Chen et al 2002)
+    
+    # Hb_tot
+    p_hbtot_long_a <- df_hbtot_all_alphas_muscle %>% 
+      ggplot(aes(x = Status, y = long_a, color = Status)) +  
+      geom_half_point(shape = 1) +
+      geom_half_boxplot() +
+      labs(y = "alpha", x = "") +
+      ggtitle("Hb_tot") +
+      ylim(0, 1.5) +
       theme_bw() +
       theme(legend.position = "none")
     
+    kruskal.test(long_a ~ Status, df_hbtot_all_alphas_muscle)
+    # DunnTest(long_a ~ Status, df_hbtot_all_alphas_muscle)
     
-    # test for differences
-    df_hboxy_dfa_muscle %>% group_by(Status) %>% summarise(median = median(alpha))
-    kruskal.test(alpha ~ Status, data = df_hboxy_dfa_muscle)
-    DunnTest(alpha ~ Status, data = df_hboxy_dfa_muscle)
+    # Hb_oxy
+    p_hboxy_long_a <- df_hboxy_all_alphas_muscle %>% 
+      ggplot(aes(x = Status, y = long_a, color = Status)) +  
+      geom_half_point(shape = 1) +
+      geom_half_boxplot() +
+      labs(y = "alpha", x = "") +
+      ggtitle("Hb_oxy") +
+      ylim(0, 1.5) +
+      theme_bw() +
+      theme(legend.position = "none")
     
+    kruskal.test(long_a ~ Status, df_hboxy_all_alphas_muscle)
+    DunnTest(long_a ~ Status, df_hboxy_all_alphas_muscle)
+    
+    
+    # medians
+    df_hbtot_all_alphas_muscle %>% 
+      group_by(Status) %>% 
+      summarise(median(overall_a, na.rm = TRUE),
+                median(short_a, na.rm = TRUE),
+                median(long_a, na.rm = TRUE))
+    
+    df_hboxy_all_alphas_muscle %>% 
+      group_by(Status) %>% 
+      summarise(median(overall_a, na.rm = TRUE),
+                median(short_a, na.rm = TRUE),
+                median(long_a, na.rm = TRUE))
     
     
     
@@ -2390,43 +2186,13 @@
 # combine results for export ----------------------------------------------
 
 
-    # pair number with subject_id, remove duplicates (ending in 2)
-    df_num_id_muscle <- df_hbtot_cumsum_muscle %>% 
-      count(number, subject_id) %>% 
-      dplyr::select(-n)
+    df_bp_alphas_muscle <- df_hbtot_all_alphas_muscle %>% 
+      rename_with(~paste0("muscle_hbtot_", .), all_of(1:4)) %>% 
+      left_join(df_hboxy_all_alphas_muscle %>% 
+                  rename_with(~paste0("muscle_hboxy_", .), all_of(1:4))) %>% 
+      select(c(subject_id, Status, everything()))
     
-    df_num_id_muscle <- df_num_id_muscle %>% dplyr::filter(!grepl("01 2", subject_id))
-    
-    # Take means
-    df_hbtot_muscle_mean <- df_hbtot_filt_muscle %>% 
-      dplyr::filter(!is.na(sg_filt)) %>% 
-      group_by(number, Status) %>% 
-      summarise(avg_Hb_conc_muscle = mean(sg_filt))
-    
-    df_hboxy_muscle_mean <- df_hboxy_filt_muscle %>% 
-      dplyr::filter(!is.na(sg_filt)) %>% 
-      group_by(number, Status) %>% 
-      summarise(avg_Hb_o2sat_muscle = mean(sg_filt))
-    
-    # combine into df
-    
-    df_muscle_results <- df_num_id_muscle %>% 
-      left_join(df_hbtot_dfa_muscle, by = "number") %>% 
-      dplyr::rename("muscle_Hb_conc_alpha" = "alpha", "muscle_Hb_conc_second_alpha" = "second_alpha") %>% 
-      left_join(df_hboxy_dfa_muscle, by = c("number", "Status")) %>% 
-      rename("muscle_Hb_o2sat_alpha" = "alpha", "muscle_Hb_o2sat_second_alpha" = "second_alpha") %>% 
-      
-      # add hbtot and hboxy means
-      left_join(df_hbtot_muscle_mean, by = "number") %>% 
-      left_join(df_hboxy_muscle_mean, by = "number") %>% 
-      
-      # reorder
-      dplyr::select(number, subject_id, Status, 
-                    avg_Hb_conc_muscle, muscle_Hb_conc_alpha, muscle_Hb_conc_second_alpha,
-                    avg_Hb_o2sat_muscle, muscle_Hb_o2sat_alpha, muscle_Hb_o2sat_second_alpha)
-    
-    # save!!!
-    save(df_muscle_results, file = "muscle_dfa_results.Rdata")
+    write.csv(df_bp_alphas_muscle, file = "Data/bandpass_filtered_alphas_muscle.csv")
     
     
     
