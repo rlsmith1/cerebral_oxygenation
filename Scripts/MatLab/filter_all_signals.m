@@ -1,7 +1,7 @@
 % run signal_filtering or bandpass_filter on all Hb_tot data (muscle or
 % brain)
 % (see function.m files for input args)
-path = "Data/signal_segments/muscle/Hb_tot/";
+path = "Data/signal_segments/cerebral_missing_UM/Hb_tot/";
 Hbtot_files = dir(fullfile(path, "*.txt"));
 Hbtot_filt = {};
 
@@ -11,7 +11,7 @@ for i = 1:numel(Hbtot_files)
 end
 
 % run signal_filtering or bandpass_filter on all Hb_oxy data
-path = "Data/signal_segments/muscle/Hb_oxy/";
+path = "Data/signal_segments/cerebral_missing_UM/Hb_oxy/";
 Hboxy_files = dir(fullfile(path, "*.txt"));
 Hboxy_filt = {};
 

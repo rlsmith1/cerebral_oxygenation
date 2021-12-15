@@ -3,10 +3,12 @@
 
 # Libraries ---------------------------------------------------------------
 
+        require(readxl)
         library(tidyverse)
         library(nortest)
         library(FSA)
         library(tidymodels)
+        library(themis)
         library(factoextra)
         library(plotly)
         library(usemodels)
@@ -18,79 +20,53 @@
 # Data --------------------------------------------------------------------
 
         # read in data
-        df_hbox <- read.csv("Data/98 first visit records with cerebral oxygenation stats_trimmed.csv") %>% as_tibble()
+        df_master <- read_xlsx("Data/master_datatable.csv") %>% as_tibble() %>% select(-X)
         
 
 # Format data -------------------------------------------------------------
-
         
-        # get rid of "Other"
-        df_hbox <- df_hbox %>% 
-                filter(Status != "Other") %>% 
-                mutate(Status = factor(Status, levels = c("HV", "UM", "CM")))
         
-        # identify duplicated rows (TM0003, TM2001)
-        df_hbox <- df_hbox %>% filter(duplicated(Subject.ID..NIAID.) == FALSE)
-        
-        # Convert age to numeric
-        df_hbox <- df_hbox %>% 
-                mutate(Age = gsub(" Years, ", "_", Age)) %>% 
-                mutate(Age = gsub(" Months ", "", Age)) %>% 
-                separate(Age, into = c("Years", "Months"), sep = "_") %>% 
-                mutate(Years = as.numeric(Years)) %>% 
-                mutate(Months = as.numeric(Months)/12) %>% 
-                mutate(Age = Years + Months) %>% 
-                select(-c(Years, Months))
-        
-        # Convert sex to factor
-        df_hbox <- df_hbox %>% mutate(Sex = as.factor(Sex))
-        
-        # Trim for variables of interest (VOI)
-        df_hbox_trim <- df_hbox %>% 
-                dplyr::select(c(Subject.ID..NIAID., Status, Glucose, Hematocrit, Lactate, Temperature,
-                                Arginine.umol.L, Haptoglobin..mg.dl., Hemoglobin..uM., Whole.Blood.Nitrite, 
-                                cerebral.hbdeox, cerebral.hbdeox.alpha, cerebral.hbox, cerebral.hbox.alpha,
-                                cerebral.sat, cerebral.sat.alpha, cerebral.thc, cerebral.thc.alpha, cerebral.thc.norm.std)) %>% 
-                
-                dplyr::rename("subject_id" = "Subject.ID..NIAID.", "Arginine" = "Arginine.umol.L", "Haptoglobin" = "Haptoglobin..mg.dl.", 
-                              "Hemoglobin" = "Hemoglobin..uM.", "WB_Nitrite" = "Whole.Blood.Nitrite", "DeoxyHb" = "cerebral.hbdeox", 
-                              "DeoxyHb_alpha" = "cerebral.hbdeox.alpha", "OxyHb" = "cerebral.hbox", "OxyHb_alpha" = "cerebral.hbox.alpha", 
-                              "O2sat" = "cerebral.sat", "O2sat_alpha" = "cerebral.sat.alpha", "THC" = "cerebral.thc", 
-                              "THC_alpha" = "cerebral.thc.alpha", "THC_sd" = "cerebral.thc.norm.std") 
+        # Trim for variables of interest (VOI) - variables that are significantly different between UM and CM
+        df_master_voi <- df_master %>% 
+                dplyr::select(c(subject_id, Status,
+                                cerebral_hb_oxy, cerebral_hboxy_long_a, cerebral_hb_tot, cerebral_hbtot_long_a,
+                                Hematocrit, Lactate)) 
         
         # impute missing data with median by group
         f_impute <- function(x, na.rm = TRUE) (replace(x, is.na(x), median(x, na.rm = na.rm)))
         
-        df_hbox_impute <- df_hbox_trim %>% 
-                group_by(Status) %>% 
-                mutate_at(3:ncol(.), f_impute) %>% 
-                ungroup()
-
+        df_master_impute <- df_master_voi %>% 
+          group_by(Status) %>% 
+          mutate_at(3:ncol(.), f_impute) %>% 
+          ungroup() %>% 
+          filter(Status != "HC")
+        
         # pivot long
-        df_hbox_long <- df_hbox_trim %>% pivot_longer(cols = 3:ncol(.), names_to = "measurement", values_to = "value")
+        df_master_voi_long <- df_master_voi %>%
+          filter(Status != "HC") %>% 
+          pivot_longer(cols = 3:ncol(.), names_to = "variable", values_to = "value")
         
 
-        
-        
+
         
 # Explore data with plots -------------------------------------------------------
 
         
         # histogram to explore normality of data
-        df_hbox_long %>% 
+        df_master_voi_long %>% 
                 
                 ggplot(aes(x = value)) +
                 geom_histogram(bins = 20) +
-                facet_grid(Status ~ measurement, scales = "free")
+                facet_grid(Status ~ variable, scales = "free")
         
         # plot all
-        df_hbox_long %>% 
+        df_master_voi_long %>% 
                 
                 ggplot(aes(x = Status, y = value)) +
                 geom_violin(aes(color = Status)) +
                 geom_jitter(position = position_jitter(0.2), shape = 1) +
                 stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
-                facet_wrap(~measurement, scales = "free_y") +
+                facet_wrap(~variable, scales = "free_y") +
                 
                 theme_bw() +
                 #ggtitle("cerebral.hbdeox") +
@@ -103,11 +79,13 @@
 # Use PCA to explore if these variables cluster Status --------------------
 
         # convert tibble to df
-        df_hbox_impute_df <- df_hbox_impute %>% select(-c(subject_id, Status)) %>% as.data.frame(df_hbox_impute) 
-        rownames(df_hbox_impute_df) <- df_hbox_impute$subject_id
+        df_master_impute_df <- df_master_impute %>% 
+          select(-c(subject_id, Status)) %>% 
+          as.data.frame(df_master_impute) 
+        rownames(df_master_impute_df) <- df_master_impute$subject_id
         
         # compute PCA
-        my_pca <- prcomp(df_hbox_impute_df, scale = TRUE)
+        my_pca <- prcomp(df_master_impute_df, scale = TRUE)
         
         # Scree plot (visualize eigenvalues)
         fviz_eig(my_pca)
@@ -127,7 +105,7 @@
         )
         
         # Biplot of individuals and variables
-        groups <- as.factor(df_hbox_impute$Status)
+        groups <- as.factor(df_master_impute$Status)
         p_biplot <- fviz_pca_biplot(my_pca, repel = TRUE,
                                     col.var = "black", # Variables color
                                     col.ind = groups  # Individuals color
@@ -191,71 +169,124 @@
 
 
 
-# Tidymodels: Random forest predictive modeling --------------------------------------------------------------
+
+
+# variable correlations ---------------------------------------------------
+
+        f_calc_cor <- function(df, status) {
+          
+          df %>%
+            dplyr::filter(Status == status) %>% 
+            dplyr::select(-c(subject_id, Status)) %>% 
+            cor(method = "spearman")
+          
+        }
+        
+        # create run correlations of potential regressors
+        m_cor_hv <- df_master_impute %>% f_calc_cor(status = "HC")
+        
+        m_cor_um <- df_master_impute %>% f_calc_cor(status = "UM")
+        
+        m_cor_cm <- df_master_impute %>% f_calc_cor(status = "CM")
+        
+        # correlation matrix
+        
+        # write plot function
+        f_plot_cor <- function(mat) {
+          
+          reshape2::melt(mat) %>% 
+            
+            mutate_if(is.factor, factor, levels = c("Lactate", "Hematocrit", 
+                                                    "cerebral_hb_oxy", "cerebral_hb_tot", 
+                                                    "cerebral_hboxy_long_a", "cerebral_hbtot_long_a")) %>% 
+            
+            ggplot(aes(x = Var1, y = Var2, fill = value, label = round(value, 2))) + 
+            geom_tile() +
+            scale_fill_gradient2(low = "#4575b4", high = "#d73027") +
+            geom_text() +
+            
+            xlab("") +
+            ylab("") +
+            theme_bw()
+            
+          
+        }
+        
+        # extract legend
+        p_leg <- m_cor_hv %>% f_plot_cor() %>% get_legend()
+        
+        # create plots
+        m_cor_um %>% f_plot_cor
+        m_cor_cm %>% f_plot_cor
+
+        
+# Logistic regression model --------------------------------------------------------------
 
 
         # Data
-        hbox_df <- df_hbox_trim %>% select(-subject_id)
+        df_model <- df_master_voi %>% select(-subject_id)
         
-        # Build a model
+        ## write function to create model on given df
         
-                # split data set
-                set.seed(123)
-                hbox_split <- initial_split(hbox_df, strata = Status)
-                hbox_train <- training(hbox_split)
-                hbox_test <- testing(hbox_split)  
-                
-                # resamples (not a lot of data, need to use cross validation)
-                set.seed(234)
-                vfold_cv(hbox_train, strata = Status) # test too small
-                hbox_folds <- bootstraps(hbox_train, strata = Status)
-                
-                # Scaffolding for setting up common types of models
-                use_ranger(Status ~ ., data = hbox_df)
-                
-                # Copy usemodels code...
-                
-                # Create recipe
-                ranger_recipe <- 
-                        recipe(formula = Status ~ ., data = hbox_df) %>% 
+        f_log_reg_model <- function(df_model, times) {
+          
+          # resample
+          hbox_boot <- bootstraps(df_model, strata = Status, times = times)
+          
+          # recipe
+          hbox_rec <- recipe(Status ~ ., data = df_model) %>% 
+            step_BoxCox(all_predictors()) %>% # Box-Cox transformation of data
+            step_nzv(all_predictors()) %>% # remove variables with non-zero variance
+            step_impute_knn(all_predictors()) %>% # impute using KNN
+            step_smote(Status) # upsample to deal with unbalanced sample sizes
+          
+          # create workflow
+          hbox_wf <- workflow() %>% add_recipe(hbox_rec)
+          
+          # logistic regression model specifications
+          glm_spec <- logistic_reg() %>% set_engine("glm")
+          
+          # create model on resamples
+          glm_res <- hbox_wf %>% 
+            add_model(glm_spec) %>%
+            fit_resamples(
+              resamples = hbox_boot,
+              metrics = metric_set(roc_auc, accuracy, sensitivity, specificity),
+              control = tune::control_resamples(save_pred = TRUE, verbose = TRUE)
+            )
+          
+          # select best model to be used for evaluation
+          glm_best <- glm_res %>% select_best("roc_auc")
+          
+          # finalize model
+          hbox_final <- hbox_wf %>% 
+            add_model(glm_spec) %>% 
+            finalize_workflow(glm_best) %>%
+            fit(df_model) %>%
+            pull_workflow_fit()
+          
+          # view coefficients & p-values
+          model_coefs <- hbox_final %>% tidy()
+          
+          # return list including model and a table of best model variable statistics
+          list(glm_res, model_coefs)
+          
+        }
+        
+        
 
-                        # BoxCox transformation to normality
-                        step_BoxCox(all_predictors(), -all_outcomes()) %>% 
-                        
-                        # remove variables with non-zero variance
-                        step_nzv(all_predictors(), -all_outcomes()) %>% 
-                        
-                        # impute missing data using K-nearest neighbors
-                        step_knnimpute(all_predictors(), -all_outcomes()) 
-                
-                # Model specifications (set for tuning)
-                ranger_spec <- 
-                        rand_forest(mtry = tune(), min_n = tune(), trees = 1000) %>% 
-                        set_mode("classification") %>% 
-                        set_engine("ranger") 
-                
-                # Create workflow
-                ranger_workflow <- 
-                        workflow() %>% 
-                        add_recipe(ranger_recipe) %>% 
-                        add_model(ranger_spec) 
-                
-        # Tune model
-                
-                # Initial tune on bootstraps
-                set.seed(84374)
-                ranger_tune <-
-                        tune_grid(ranger_workflow, 
-                                  resamples = hbox_folds, 
-                                  grid = 11)
-                
-                # Explore tuning results
-                show_best(ranger_tune, metric = "roc_auc")
-                show_best(ranger_tune, metric = "accuracy")
-                
-                # Visualize results
-                autoplot(ranger_tune)
-                
+
+        ## Perform functions on all iterations of model
+        
+        set.seed(123)
+        
+        # select starting variables
+        df_hbox_model1 <- df_hbox_log_reg %>% 
+          dplyr::select(c(Status, Hematocrit, Lactate, avg_Hb_o2sat, Hb_o2sat_second_alpha, avg_Hb_conc, Hb_conc_second_alpha)) %>% 
+          mutate(Status = factor(Status, levels = c("CM", "UM")))
+        
+        
+        
         # Finalize model
                 
                 # finalize workflow

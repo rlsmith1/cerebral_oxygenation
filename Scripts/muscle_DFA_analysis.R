@@ -1792,7 +1792,7 @@
     
 # Once you have repeated this for all the patients, combine the filtered Hb_tot signals into one tibble and the filtered Hb_oxy signals into another
     
-    df_hbtot_filt <- bind_rows(df_hbtot1, df_hbtot2, df_hbtot3, df_hbtot4, df_hbtot5, df_hbtot6, df_hbtot7, df_hbtot8, df_hbtot9, df_hbtot10,
+    df_hbtot_filt_muscle <- bind_rows(df_hbtot1, df_hbtot2, df_hbtot3, df_hbtot4, df_hbtot5, df_hbtot6, df_hbtot7, df_hbtot8, df_hbtot9, df_hbtot10,
                                df_hbtot11, df_hbtot12, df_hbtot13, df_hbtot14, df_hbtot15, df_hbtot16, df_hbtot17, df_hbtot18, df_hbtot20,
                                df_hbtot21, df_hbtot22, df_hbtot26, df_hbtot27, df_hbtot28, df_hbtot29, df_hbtot30,
                                df_hbtot31, df_hbtot32, df_hbtot33, df_hbtot34, df_hbtot35, df_hbtot36, df_hbtot37, df_hbtot38, df_hbtot39, df_hbtot40,
@@ -1805,7 +1805,7 @@
                                df_hbtot101, df_hbtot102, df_hbtot103, df_hbtot104, df_hbtot105, df_hbtot106, df_hbtot107, df_hbtot108, df_hbtot109, df_hbtot110,
                                df_hbtot111, df_hbtot112, df_hbtot113, df_hbtot114, df_hbtot115, df_hbtot116, df_hbtot117, df_hbtot118, df_hbtot119)
     
-    df_hboxy_filt <- bind_rows(df_hboxy1, df_hboxy2, df_hboxy3, df_hboxy4, df_hboxy5, df_hboxy6, df_hboxy7, df_hboxy8, df_hboxy9, df_hboxy10,
+    df_hboxy_filt_muscle <- bind_rows(df_hboxy1, df_hboxy2, df_hboxy3, df_hboxy4, df_hboxy5, df_hboxy6, df_hboxy7, df_hboxy8, df_hboxy9, df_hboxy10,
                                df_hboxy11, df_hboxy12, df_hboxy13, df_hboxy14, df_hboxy15, df_hboxy16, df_hboxy17, df_hboxy18, df_hboxy20,
                                df_hboxy21, df_hboxy22, df_hboxy26, df_hboxy27, df_hboxy28, df_hboxy29, df_hboxy30,
                                df_hboxy31, df_hboxy32, df_hboxy33, df_hboxy34, df_hboxy35, df_hboxy36, df_hboxy37, df_hboxy38, df_hboxy39, df_hboxy40,
@@ -1819,6 +1819,7 @@
                                df_hboxy111, df_hboxy112, df_hboxy113, df_hboxy114, df_hboxy115, df_hboxy116, df_hboxy117, df_hboxy118, df_hboxy119)
     
     
+    save(df_hbtot_filt_muscle, df_hboxy_filt_muscle, file = "objects/muscle_signal_segments.Rdata")
 
     
 

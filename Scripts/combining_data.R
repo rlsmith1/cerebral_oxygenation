@@ -6,91 +6,125 @@
 
 
   library(tidyverse)
+  library(readxl)
 
 
 
 # load data ---------------------------------------------------------------
 
 
-  df_hbox <- read.csv("Data/98 first visit records with cerebral oxygenation stats_trimmed.csv") %>% as_tibble()
-  load("results.Rdata")
+  df_hbox <- read_xlsx("Data/Hans_datatable_exports/malawi key data v13Dec2021.xlsx") %>% as_tibble() %>% 
+    mutate(Status = ifelse(Status == "HV", "HC", Status)) # clinical data
   
+  df_bp_alphas_muscle <- read.csv("Data/final_dfa_results/bandpass_filtered_alphas_muscle.csv") %>% as_tibble() # muscle DFA res
+  df_bp_alphas_brain <- read.csv("Data/final_dfa_results/bandpass_filtered_alphas.csv") %>% as_tibble() # brain DFA res
+  df_bp_alphas_brain_missing_um <- read.csv("Data/final_dfa_results/cerebral_missing_UM_alphas.csv") %>% as_tibble()
   
+  # muscle averages
+  
+      # Hb_tot
+      hbtot_muscle_path <- "Data/signal_segments/muscle/Hb_tot"
+      hbtot_muscle_files <- list.files(hbtot_muscle_path)
+      l_hbtot_filt_muscle <- 1:length(hbtot_muscle_files) %>% 
+        purrr::map(~read.table(paste0(hbtot_muscle_path, sep = "/", hbtot_muscle_files[.x])))
+      
+      df_med_hbtot_muscle <- 1:length(l_hbtot_filt_muscle) %>% 
+        purrr::map(~mutate(l_hbtot_filt_muscle[[.x]], muscle_hb_tot = median(Hb_tot)) %>% 
+                     dplyr::select(c(subject_id, muscle_hb_tot)) %>% 
+                     unique()) %>% 
+        rbindlist() %>% as_tibble()
+      
+      # Hb_oxy
+      hboxy_muscle_path <- "Data/signal_segments/muscle/Hb_oxy"
+      hboxy_muscle_files <- list.files(hboxy_muscle_path)
+      l_hboxy_filt_muscle <- 1:length(hboxy_muscle_files) %>% 
+        purrr::map(~read.table(paste0(hboxy_muscle_path, sep = "/", hboxy_muscle_files[.x])))
+      
+      df_med_hboxy_muscle <- 1:length(l_hboxy_filt_muscle) %>% 
+        purrr::map(~mutate(l_hboxy_filt_muscle[[.x]], muscle_hb_oxy = median(Hb_oxy)) %>% 
+                     dplyr::select(c(subject_id, muscle_hb_oxy)) %>% 
+                     unique()) %>% 
+        rbindlist() %>% as_tibble()
+      
+    # brain averages
+      
+      # Hb_tot
+      hbtot_brain_path <- "Data/signal_segments/Hb_tot"
+      hbtot_brain_files <- list.files(hbtot_brain_path)
+      l_hbtot_filt_brain <- 1:length(hbtot_brain_files) %>% 
+        purrr::map(~read.table(paste0(hbtot_brain_path, sep = "/", hbtot_brain_files[.x])))
+      
+      df_med_hbtot_brain <- 1:length(l_hbtot_filt_brain) %>% 
+        purrr::map(~mutate(l_hbtot_filt_brain[[.x]], cerebral_hb_tot = median(THC)) %>% 
+                     dplyr::select(c(subject_id, cerebral_hb_tot)) %>% 
+                     unique()) %>% 
+        rbindlist() %>% as_tibble()
+      
+      # Hb_oxy
+      hboxy_brain_path <- "Data/signal_segments/Hb_oxy"
+      hboxy_brain_files <- list.files(hboxy_brain_path)
+      l_hboxy_filt_brain <- 1:length(hboxy_brain_files) %>% 
+        purrr::map(~read.table(paste0(hboxy_brain_path, sep = "/", hboxy_brain_files[.x])))
+      
+      df_med_hboxy_brain <- 1:length(l_hboxy_filt_brain) %>% 
+        purrr::map(~mutate(l_hboxy_filt_brain[[.x]], cerebral_hb_oxy = median(O2_sat)) %>% 
+                     dplyr::select(c(subject_id, cerebral_hb_oxy)) %>% 
+                     unique()) %>% 
+        rbindlist() %>% as_tibble()
+      
+      
+      
 
-# format data -------------------------------------------------------------
 
-  
-  # get rid of "Other"
-  df_hbox <- df_hbox %>% 
-    dplyr::filter(Status != "Other") %>% 
-    mutate(Status = replace(Status, Status == "HV", "HC"), 
-           Status = factor(Status, levels = c("HC", "UM", "CM")))
-  
-  # identify duplicated rows (TM0003, TM2001)
-  # df_hbox <- df_hbox %>% dplyr::filter(duplicated(Subject.ID..NIAID.) == FALSE)
-  
-  # Convert age to numeric
-  df_hbox <- df_hbox %>%
-    mutate(Age = gsub(" Years, ", "_", Age)) %>%
-    mutate(Age = gsub(" Months ", "", Age)) %>%
-    separate(Age, into = c("Years", "Months"), sep = "_") %>%
-    mutate(Years = as.numeric(Years)) %>%
-    mutate(Months = as.numeric(Months)/12) %>%
-    mutate(Age = Years + Months) %>%
-    dplyr::select(-c(Years, Months))
-  
-  # Convert sex to factor
-  df_hbox <- df_hbox %>% mutate(Sex = as.factor(Sex))
-  
-  # Trim for variables of interest (VOI)
-  df_hbox_trim <- df_hbox %>% 
-    dplyr::select(c(Subject.ID..NIAID., Status, Subject.ID.and.Visit, Admission.Date, DOB, Sex, Age, Glucose, Hematocrit, Lactate, Temperature,
-                    Arginine.umol.L, Haptoglobin..mg.dl., Hemoglobin..uM., 
-                    BP.Diastolic, BP.Systolic, O2.Sat, RR, HR)) %>% 
-    dplyr::filter(!grepl("blood", Subject.ID.and.Visit)) %>% 
-    dplyr::rename("subject_id" = "Subject.ID..NIAID.", "visit" = "Subject.ID.and.Visit") %>% 
-    dplyr::mutate(visit = substr(visit, start = 9, stop = 10))
-  
+# format and combine data -------------------------------------------------------------
 
-  
-# combine DFA results from brain and muscle, initial visit & follow-up --------
+  df_hbox %>% colnames()
+      # fix Status and subject_id to match other dfs
+      df_hbox <- df_hbox %>% 
+        rename("subject_id" = "Subject ID and Visit") %>% 
+        dplyr::filter(Status %in% c("CM", "HC", "UM") & session.no == 1 | subject_id == "TM0003CM01") %>% 
+        dplyr::filter(!grepl("blood", subject_id)) %>% 
+        mutate(Status = factor(Status, levels = c("HC", "UM", "CM"))) %>% 
+        select(c(subject_id, Status, everything()))
+      
+      # remove old alphas, add averages & new alphas
+      subjs <- df_bp_alphas_brain_missing_um$subject_id
+      
+      df_master <- df_hbox %>% 
+        select(-c(contains("alpha"), cerebral_hb_oxy, cerebral_hb_tot)) %>% 
+        
+        # add muscle alphas & medians
+        right_join(df_bp_alphas_muscle %>% 
+                     select(-c(X, contains("breakpoint"))) %>% 
+                     left_join(df_med_hboxy_muscle, by = "subject_id") %>% 
+                     left_join(df_med_hbtot_muscle, by = "subject_id"), 
+                   by = c("subject_id", "Status")) %>% 
+        
+        # add brain alphas & medians
+        left_join(df_bp_alphas_brain %>% 
+                    select(-c(X, contains("breakpoint"))) %>% 
+                    rename_with(~paste0("cerebral_", .x), 3:8) %>% 
+                    left_join(df_med_hboxy_brain, by = "subject_id") %>% 
+                    left_join(df_med_hbtot_brain, by = "subject_id"), 
+                  by = c("subject_id", "Status")) %>% 
+        
+        # replace missing UM values
+        left_join(df_bp_alphas_brain_missing_um, by = c("subject_id", "Status")) %>%
+        mutate(cerebral_hbtot_overall_a = ifelse(subject_id %in% subjs, cerebral_hbtot_overall_a.y, cerebral_hbtot_overall_a.x),
+               cerebral_hbtot_short_a = ifelse(subject_id %in% subjs, cerebral_hbtot_short_a.y, cerebral_hbtot_short_a.x),
+               cerebral_hbtot_long_a = ifelse(subject_id %in% subjs, cerebral_hbtot_long_a.y, cerebral_hbtot_long_a.x),
+               cerebral_hboxy_overall_a = ifelse(subject_id %in% subjs, cerebral_hboxy_overall_a.y, cerebral_hboxy_overall_a.x),
+               cerebral_hboxy_short_a = ifelse(subject_id %in% subjs, cerebral_hboxy_short_a.y, cerebral_hboxy_short_a.x),
+               cerebral_hboxy_long_a = ifelse(subject_id %in% subjs, cerebral_hboxy_long_a.y, cerebral_hboxy_long_a.x),
+               cerebral_hb_tot = ifelse(subject_id %in% subjs, cerebral_hb_tot.y, cerebral_hb_tot.x),
+               cerebral_hb_oxy = ifelse(subject_id %in% subjs, cerebral_hb_oxy.y, cerebral_hb_oxy.x)) %>% 
+        select(-contains(".y"), -contains(".x")) %>%
+        
+        # reorganize
+        select(c(subject_id, Status, session.no, order(colnames(.)))) %>% 
+        select(-contains("breakpoint"))
 
-  load("results.Rdata")
-  load("follow_up_results.Rdata")
-  load("muscle_dfa_results.Rdata")
-  load("muscle_follow_up_results.Rdata")
-  
 
-  # df_results <- df_results %>% 
-  #   mutate(Status = ifelse(is.na(Status), "HC", as.character(Status)),
-  #          subject_id = substr(subject_id, start = 1, stop = 6)) %>% 
-  #   mutate(Status = factor(Status, levels = c("HC", "UM", "CM")))
-  
-  # save(df_results, file = "results.Rdata")
-
-  df_fu_results <- df_fu_results %>% mutate(subject_id = substr(subject_id, start = 1, stop = 6)) %>% select(-number)
-  df_muscle_results <- df_muscle_results %>% mutate(subject_id = substr(subject_id, start = 1, stop = 6)) %>% select(-number)
-  df_muscle_fu_results <- df_muscle_fu_results %>% mutate(subject_id = substr(subject_id, start = 1, stop = 6)) %>% select(-number)
-  
-  # combine brain data
-  df_brain_dfa_results <- df_results %>% 
-    left_join(df_fu_results, by = c("subject_id", "Status")) %>% 
-    select(-visit)
-  
-  # combine muscle data
-  df_muscle_dfa_results <- df_muscle_results %>% 
-    left_join(df_muscle_fu_results, by = c("subject_id", "Status"))
-  
-  
-  # combine all!
-  df_all_dfa_results <- df_brain_dfa_results %>% 
-    right_join(df_muscle_dfa_results, by = c("subject_id", "Status"))
-  
-  
-# join clinical data with dfa results -------------------------------------
-
-  df_master <- df_hbox_trim %>% 
-    left_join(df_all_dfa_results, by = c("subject_id", "Status"))
 
 
 # filter  ---------------------------------------------------------
@@ -114,11 +148,11 @@
 
 
   # any duplicated patients?
-  df_master %>% count(subject_id) %>% dplyr::filter(n > 1) # TM2001
+  df_master %>% count(subject_id) %>% dplyr::filter(n > 1)
 
 
   # any negative Hb o2 sat?
-  df_master %>% dplyr::filter(avg_Hb_o2sat < 20)
+  df_master <- df_master %>% dplyr::filter(cerebral_hb_oxy > 20)
   
   
   
@@ -126,13 +160,14 @@
 
   write.csv(df_master, file = "Data/master_datatable.csv")
 
-  # also save dfa results as a separate object
-  save(df_brain_dfa_results, df_muscle_dfa_results, df_all_dfa_results, file = "all_dfa_results.Rdata")
 
   
   
-  
-  
+
+
+
+
+
   
   
   

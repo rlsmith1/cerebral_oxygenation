@@ -4,37 +4,65 @@
 # libraries ---------------------------------------------------------------
 
 
+    require(readxl)
     library(tidyverse)
     library(tidymodels)
+    library(themis)
     library(vip)  
     library(glmnet)
 
 
 
+# data --------------------------------------------------------------------
+
+
+  df_model <- read.csv("Data/master_datatable.csv") %>% 
+    as_tibble() %>% 
+    select(c(subject_id, Status, Hematocrit, Lactate,
+             cerebral_hb_tot, cerebral_hbtot_long_a, cerebral_hb_oxy, cerebral_hboxy_long_a)) %>% 
+    mutate(Status = factor(Status, c("HC", "UM", "CM")))
+
+
 # Train model -------------------------------------------------------------
 
-
+   
+  df_model <- df_model %>% filter(Status != "HC")
+  df_model %>% is.na %>% colSums
+  df_model %>% filter(is.na(cerebral_hboxy_long_a))
+  
+  # look at missing data
+  require(naniar)
+  df_model %>% select(-c(subject_id, Status)) %>% gg_miss_upset() 
+  df_model %>% count(Status) # 11 out of 24 UM measurements don't have any good recordings
+  
     # create recipe
     my_rec <- recipe(Status ~ ., data = df_model) %>% 
-      step_BoxCox(all_predictors()) %>%
-      step_nzv(all_predictors())
+      step_impute_knn(all_predictors()) %>% 
+      step_normalize(all_predictors()) %>%
+      step_zv(all_predictors()) %>%
+      step_upsample(all_outcomes()) %>% 
+      update_role(subject_id, new_role = "id")
     
+    # prep
+    my_prep <- my_rec %>% prep(strings_as_factors = FALSE)
+    
+
     # model specification
-    lasso_spec <- logistic_reg(penalty = 0.1, mixture = 1) %>% # picking specific penalty (tune in next section)
+    lasso_spec <- logistic_reg(penalty = 0.1, mixture = 1) %>% # picking specific penalty (tune in next section) for LASSO regression
       set_engine("glmnet")
     
     # create workflow
-    lasso_wf <- workflow() %>% 
+    wf <- workflow() %>% 
       add_recipe(my_rec)
     
     # fit the workflow to model + data
-    lasso_fit <- lasso_wf %>% 
+    lasso_fit <- wf %>% 
       add_model(lasso_spec) %>% 
       fit(data = df_model)
     
     # extract results
     lasso_fit %>% 
-      pull_workflow_fit() %>% 
+      extract_fit_parsnip() %>% 
       tidy()
 
 
@@ -47,7 +75,7 @@
     
     # resample
     set.seed(234)
-    my_boot <- bootstraps(df_model, strata = group, times = 1000)
+    my_boot <- bootstraps(df_model, strata = Status)
     
     # new specification
     tune_spec <- logistic_reg(penalty = tune(), mixture = 1) %>% # tune model to determine optimal penalty value
@@ -93,23 +121,21 @@
     # fit model
     final_lasso_fit <- final_lasso %>% 
       fit(df_model) %>% 
-      pull_workflow_fit()
+      extract_fit_parsnip()
     
     # extract results
     final_lasso_fit %>% tidy()
     
-    
-    
+
     
     
 # Explore results with plots ----------------------------------------------
 
 
-    
     # ROC curve
     lasso_grid %>% 
       collect_predictions(parameters = highest_roc_auc) %>% 
-      roc_curve(truth = group, .pred_class1) %>% 
+      roc_curve(truth = Status, .pred_class) %>% 
       
       ggplot(aes(x = 1 - specificity, y = sensitivity)) +
       geom_line() +
@@ -140,6 +166,28 @@
       theme_bw() 
     
 
+    
+    
+    
+
+# messing around ----------------------------------------------------------
+
+    df_model <- df_master_impute %>% select(-subject_id)
+    
+    x <- df_model %>% select(-Status) %>% as.matrix() # matrix of predictor variables
+    y <- df_model$Status# response or outcome variable (binary)
+
+    cv.lasso <- cv.glmnet(x, y, alpha = 1, family = "binomial")
+    plot(cv.lasso)
+    model <- glmnet(x, y, alpha = 1, family = "binomial",
+                    lambda = cv.lasso$lambda.min)
+
+    coef(model)    
+    
+    
+    
+    
+    
     
     
     
