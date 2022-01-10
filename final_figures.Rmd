@@ -17,6 +17,7 @@ knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, comment = 
 
 # Load libraries
 library(tidyverse)
+library(readxl)
 library(DescTools)
 library(janitor)
 library(FSA)
@@ -31,13 +32,9 @@ library(extrafont)
 library(grDevices)
 
 # Load data
-load("psd_plot_data.Rdata")
-load("glm_model.Rdata")
-load("results.Rdata")
-load("roc_curves.Rdata")
-load("dfa_example.Rdata")
-load("dfa_results.Rdata")
-load("all_dfa_results.Rdata")
+load("objects/glm_model.Rdata")
+load("objects/bandpass_filtered_dfa_results.Rdata")
+load("objects/sims.Rdata")
 
 font_import()
 
@@ -47,181 +44,139 @@ font_import()
 
 # read in data
 
-  df_hbox <- read.csv("Data/master_datatable.csv") %>% 
-    as_tibble() %>% 
-    dplyr::select(-1) %>% 
-    mutate(Status = replace(Status, Status == "HV", "HC")) %>% 
-    mutate(Status = factor(Status, levels = c("HC", "UM", "CM")))
-
-# pivot long
-
-  df_hbox_long <- df_hbox %>% pivot_longer(cols = 7:ncol(.), names_to = "variable", values_to = "value")
+df_hbox <- read_csv("Data/Hans_datatable_exports/malawi key data v04Jan2022.csv") %>% 
+  as_tibble() %>% 
+  janitor::clean_names() %>% 
+  mutate(status = replace(status, status == "HV", "HC")) %>% 
+  dplyr::rename("subject_id" = "subject_id_session") %>% 
+  
+  dplyr::filter(status %in% c("CM", "HC", "UM") & session_no == 1 | subject_id == "TM0003CM01") %>% 
+  dplyr::filter(!grepl("blood", subject_id)) %>% 
+  mutate(status = factor(status, levels = c("HC", "UM", "CM"))) %>% 
+  mutate_at(c("bp_dias", "bp_sys", "glucose", "lactate"), as.numeric) %>% # converts remaining character variables to numerics
+  select(subject_id, status, everything()) %>% 
+  group_by(status)
 
 ```
 
 ### Table 1. Baseline clinical characteristics
 
-```{r table1}
+#### Table 1a. All clinical data
+```{r table1a, eval = FALSE}
 
 # number of subjects 
 df_status <- df_hbox %>% 
-  count(Status) %>% 
-  pivot_wider(1:2, names_from = "Status", values_from = "n") %>% 
+  count() %>% 
+  pivot_wider(1:2, names_from = "status", values_from = "n") %>% 
   mutate(variable = "Number of subjects") %>% 
   dplyr::select(variable, everything()) %>% 
   mutate_if(is.numeric, as.character)
 
 # Sex
 df_sex <- df_hbox %>% 
-  group_by(Status) %>% 
-  count(Sex) %>% 
-  dplyr::filter(Sex != "") %>% 
-  pivot_wider(names_from = "Sex", values_from = "n") %>% 
+  count(sex) %>% 
+  dplyr::filter(sex != "") %>% 
+  pivot_wider(names_from = "sex", values_from = "n") %>% 
   mutate(perc_fem = round(Female/(Female + Male)*100, 2)) %>% 
   
-  pivot_wider(c(1,4), names_from = "Status", values_from = "perc_fem") %>% 
+  pivot_wider(c(1,4), names_from = "status", values_from = "perc_fem") %>% 
   mutate(variable = "Sex (% female)") %>% 
   dplyr::select(variable, everything()) %>% 
   mutate_if(is.numeric, as.character)
 
 # other numeric variables
 
-df_clinical_res <- df_hbox %>% 
+  # select variables for table
+  clinical_voi <- c("age_calc", "temperature", "hr", "bp_sys", "bp_dias", "resp_rate", "pulse_ox", "hct", "lactate", "glucose", "aa_arg")
   
-  # dplyr::filter(Subject.ID..NIAID. != "TM1018") %>% 
+  # calculate median, first and third quartiles
+  df_clinical_res <- df_hbox %>% 
+    select_at(clinical_voi) %>% 
+    summarise_all(funs(median = median, q1 = quantile(., probs = 0.25), q3 = quantile(., probs = 0.75)), na.rm = TRUE) %>% 
+    mutate_if(is.numeric, round, 2)
   
-  group_by(Status) %>% 
-  summarise(`Age (years)` = median(Age, na.rm = TRUE), age_q1 = quantile(Age, 0.25, na.rm = TRUE), age_q3 = quantile(Age, 0.75, na.rm = TRUE),
-            
-            `Temperature (°C)` = median(Temperature, na.rm = TRUE), temp_q1 = quantile(Temperature, 0.25, na.rm = TRUE), temp_q3 = quantile(Temperature, 0.75, na.rm = TRUE),
-            `Heart rate` = median(HR, na.rm = TRUE), hr_q1 = quantile(HR, 0.25, na.rm = TRUE), hr_q3 = quantile(HR, 0.75, na.rm = TRUE),
-            `Systolic BP` = median(BP.Systolic, na.rm = TRUE), sys_q1 = quantile(BP.Systolic, 0.25, na.rm = TRUE), sys_q3 = quantile(BP.Systolic, 0.75, na.rm = TRUE),
-            `Diastolic BP` = median(BP.Diastolic, na.rm = TRUE), dia_q1 = quantile(BP.Diastolic, 0.25, na.rm = TRUE), dia_q3 = quantile(BP.Diastolic, 0.75, na.rm = TRUE),
-            `Respiration rate` = median(RR, na.rm = TRUE), rr_q1 = quantile(RR, 0.25, na.rm = TRUE), rr_q3 = quantile(RR, 0.75, na.rm = TRUE),
-            `O~2~ saturation` = median(O2.Sat, na.rm = TRUE), o2_q1 = quantile(O2.Sat, 0.25, na.rm = TRUE), o2_q3 = quantile(O2.Sat, 0.75, na.rm = TRUE),
-            
-            `Hematocrit (%)` = median(Hematocrit, na.rm = TRUE), hem_q1 = quantile(Hematocrit, 0.25, na.rm = TRUE), hem_q3 = quantile(Hematocrit, 0.75, na.rm = TRUE),
-            `Lactate (mmol/L)` = median(Lactate, na.rm = TRUE), lac_q1 = quantile(Lactate, 0.25, na.rm = TRUE), lac_q3 = quantile(Lactate, 0.75, na.rm = TRUE),
-            `Arginine (μmol/L)` = median(Arginine.umol.L, na.rm = TRUE), arg_q1 = quantile(Arginine.umol.L, 0.25, na.rm = TRUE), arg_q3 = quantile(Arginine.umol.L, 0.75, na.rm = TRUE)) %>% 
-  mutate_if(is.numeric, round, 1) %>% 
+  # write function to paste together values
+  f_unite_cols <- function(col) {
+    df_clinical_res %>% 
+      unite(!! col, starts_with(col), sep = "_") %>% 
+      dplyr::select(!! col) 
+    }
   
-  mutate(`Age (years)` = paste0(`Age (years)`, " (", age_q1, ", ", age_q3, ")"),
-         
-         `Temperature (°C)` = paste0(`Temperature (°C)`, " (", temp_q1, ", ", temp_q3, ")"),
-         `Heart rate` = paste0(`Heart rate`, " (", hr_q1, ", ", hr_q3, ")"),
-         `Systolic BP` = paste0(`Systolic BP`, " (", sys_q1, ", ", sys_q3, ")"),
-         `Diastolic BP` = paste0(`Diastolic BP`, " (", dia_q1, ", ", dia_q3, ")"),
-         `Respiration rate` = paste0(`Respiration rate`, " (", rr_q1, ", ", rr_q3, ")"),
-         `O~2~ saturation` = paste0(`O~2~ saturation`, " (", o2_q1, ", ", o2_q3, ")"),
+  # paste together and transpose
+  df_clinical_res <- 1:length(clinical_voi) %>% 
+    purrr::map_dfc(~f_unite_cols(clinical_voi[.x])) %>% 
+    mutate_all(funs(str_replace(., "_", " ("))) %>% 
+    mutate_all(funs(str_replace(., "_", ", "))) %>% 
+    mutate_all(funs(paste0(., ")"))) %>% 
+    
+    t() %>% 
+    as_tibble(rownames = "variable") %>% 
+    dplyr::rename("HC" = "V1", "UM" = "V2", "CM" = "V3") %>% 
+    add_row(df_status, .before = 1) %>% 
+    add_row(df_sex, .before = 2) 
 
-         `Hematocrit (%)` = paste0(`Hematocrit (%)`, " (", hem_q1, ", ", hem_q3, ")"),
-         `Lactate (mmol/L)` = paste0(`Lactate (mmol/L)`, " (", lac_q1, ", ", lac_q3, ")"),
-         `Arginine (μmol/L)` = paste0(`Arginine (μmol/L)`, " (", arg_q1, ", ", arg_q3, ")")) %>% 
-  dplyr::select(-c(age_q1, age_q3, 
-                   temp_q1, temp_q3, hr_q1, hr_q3, sys_q1, sys_q3, dia_q1, dia_q3, rr_q1, rr_q3, o2_q1, o2_q3, 
-                   hem_q1, hem_q3, lac_q1, lac_q3, arg_q1, arg_q3)) %>% 
-
-  unique() %>% 
-  t() %>% 
-  row_to_names(row_number = 1) %>% 
-  as_tibble(rownames = "variable") %>% 
-  add_row(df_status, .before = 1) %>% 
-  add_row(df_sex, .before = 2) %>% 
+# export to CSV
+  write.csv(df_clinical_res, file = "Outputs/table_1.csv")
   
-  dplyr::rename(" " = "variable",
-                "Healthy children" = "HC",
-                "Uncomplicated malaria" = "UM",
-                "Cerebral malaria" = "CM")
-
-  # remove lactate data for HC
-  df_clinical_res[11,]$`Healthy children` <- "--"
-  
-  # export to CSV
-  # write.csv(df_clinical_res, file = "Outputs/table_1.csv")
-  
-  # create kable df
+# create kable df
   df_clinical_res %>% knitr::kable(align = rep('c', 4))
 
 ```
-**Table 1.** A summary of subject information and hematological data. Group patient data presented as median (quartile 1, quartile 3). Note: Sex not recorded for 3 CM patients; Lactate data removed for healthy volunteers due to inconsistent data.
+**Table 1a.** A summary of subject information and hematological data. Group patient data presented as median (quartile 1, quartile 3). 
 
-### Fig 0. (optional) Power spectral density curves
+#### Table 1b. CM-specific data
+```{r table1b, eval = FALSE}
 
-```{r fig0}
+cm_voi <- c("bcs_session", "brain_swell", "hrp2")
 
-# plot
-f_plot_psd <- function(df, status, upper_lim) {
+df_cm_voi <- df_hbox %>% 
+  ungroup %>% 
+  filter(status == "CM") %>% 
+  select_at(cm_voi) %>% 
+  mutate_at(c("bcs_session", "brain_swell"), as.factor) 
   
-  df %>% 
-    dplyr::filter(Status == status) %>% 
-    dplyr::filter(freq > 0.01 & freq < upper_lim) %>% 
-    ggplot(aes(x = freq, y = med_power)) +
-    geom_line() +
-    geom_vline(xintercept = 0.1, color = "red", lty = 2) +
-    facet_grid(tissue ~ variable, scales = "free_y") +
-    labs(x = "Frequency", y = "Median power across patients") +
-    theme_bw()  
-  
-}
 
-## 0-1 Hz
-
-  # HC
-  f_plot_psd(df_psd, "HC", 1) + ggtitle("Healthy children")
+# BCS counts
+df_cm_voi %>% count(bcs_session) %>% knitr::kable()
   
-  # UM
-  f_plot_psd(df_psd, "UM", 1) + ggtitle("Uncomplicated malaria")
-  
-  # CM
-  f_plot_psd(df_psd, "CM", 1) + ggtitle("Cerebral malaria")
+# Brain swell score counts
+df_cm_voi %>% count(brain_swell) %>% knitr::kable()
 
-## 0-3 Hz
+# HRP
+df_cm_hrp2 <- df_cm_voi %>% 
+  select(cm_voi[3]) %>% 
+  summarise_all(funs(median = median, q1 = quantile(., probs = 0.25), q3 = quantile(., probs = 0.75)), na.rm = TRUE) %>% 
+  unite(hrp2, 1:2, sep = " (") %>% 
+  unite(hrp2, 1:2, sep = ", ") %>% 
+  mutate(hrp2 = paste0(hrp2, ")")) 
 
-  # HC
-  f_plot_psd(df_psd, "HC", 3) + ggtitle("Healthy children")
+df_cm_hrp2 %>% knitr::kable()
   
-  # UM
-  f_plot_psd(df_psd, "UM", 3) + ggtitle("Uncomplicated malaria")
-  
-  # CM
-  f_plot_psd(df_psd, "CM", 3) + ggtitle("Cerebral malaria")
-
 ```
-
+**Table 1b.** CM-specific clinical characteristics
 
 ### Fig 1. Hb_oxy and Hb_tot in the brain and muscle
 
 ```{r fig1}
 
-# extract variables of interest
-voi <- df_all_dfa_results %>% colnames() %>% .[-(1:2)]
-
-# select from the long df
-df_hbox_voi_long <- df_hbox_long %>% 
-  dplyr::filter(variable %in% voi & !grepl("fu", variable)) %>% 
-  
-  mutate(tissue = as.factor(ifelse(grepl("muscle", variable), "muscle", "brain")),
-         measurement = factor(ifelse(grepl("conc", variable), "Hb_tot", "Hb_oxy"), levels = c("Hb_oxy", "Hb_tot")),
-         metric = case_when(
-           
-           grepl("overall_alpha|conc_alpha|o2sat_alpha", variable) ~ "alpha",
-           grepl("second_alpha", variable) ~ "second_alpha",
-           TRUE ~ "mean"
-           
-         )) %>% 
-  dplyr::select(-variable)
+# extract hb_tot and hb_oxy for the brain and muscle
+df_fig1 <- df_hbox %>% 
+  select(contains(c("hb_tot","hb_oxy")), -contains(c("alpha", "bsl"))) %>%
+  ungroup() %>% 
+  pivot_longer(2:ncol(.), names_to = "variable", values_to = "value") %>% 
+  separate(variable, into = c("tissue", "variable"), sep = "_", extra = "merge")
 
 # create color vector
 my_col <- c("CM" = "#00BFC4", "HC" = "#7CAE00", "UM" = "#F8766D")
 
 # plot
-df_hbox_voi_long %>% dplyr::filter(!(grepl("alpha", metric))) %>%
+df_fig1 %>% 
   
-  ggplot(aes(x = Status, y = value)) +
-  geom_violin(aes(color = Status)) +
+  ggplot(aes(x = status, y = value)) +
+  geom_violin(aes(color = status)) +
   geom_jitter(position = position_jitter(0.2), shape = 1, size = 2) +
-  stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
-  facet_grid(measurement ~ tissue, scales = "free_y") +
+  stat_summary(fun = "median", geom = "crossbar", aes(color = status), size = 0.2, width = 0.5) +
+  facet_grid(variable ~ tissue, scales = "free_y") +
   
   scale_color_manual(values = my_col) +
   labs(x = "") +
@@ -240,22 +195,30 @@ df_hbox_voi_long %>% dplyr::filter(!(grepl("alpha", metric))) %>%
 
 ```{r fig2}
 
+# extract hb_tot and hb_oxy for the brain and muscle
+df_fig2 <- df_hbox %>% 
+  select(contains("alpha2")) %>%
+  ungroup() %>% 
+  pivot_longer(2:ncol(.), names_to = "variable", values_to = "value") %>% 
+  separate(variable, into = c("tissue", "variable"), sep = "_", extra = "merge") %>% 
+  mutate(variable = str_remove(variable, "2"))
+
 # plot
-df_hbox_voi_long %>% dplyr::filter((grepl("second_alpha", metric))) %>%
+df_fig2 %>% 
   
-  ggplot(aes(x = Status, y = value)) +
-  geom_violin(aes(color = Status)) +
+  ggplot(aes(x = status, y = value)) +
+  geom_violin(aes(color = status)) +
   geom_jitter(position = position_jitter(0.2), shape = 1, size = 2) +
-  stat_summary(fun = "median", geom = "crossbar", aes(color = Status), size = 0.2, width = 0.5) +
-  facet_grid(measurement ~ tissue) +
+  stat_summary(fun = "median", geom = "crossbar", aes(color = status), size = 0.2, width = 0.5) +
+  facet_grid(variable ~ tissue, scales = "free_y") +
   
-  geom_hline(yintercept = 0.45, alpha = 0.4, lty = 2) +
-  geom_hline(yintercept = 0.55, alpha = 0.4, lty = 2) +
-  geom_hline(yintercept = 1.0, alpha = 0.4, lty = 2) +
-  geom_hline(yintercept = 1.5, alpha = 0.4, lty = 2) +
+  geom_hline(yintercept = 0.4, lty = 2, alpha = 0.7) +
+  geom_hline(yintercept = 0.6, lty = 2, alpha = 0.7) +
+  geom_hline(yintercept = 1.0, lty = 2, alpha = 0.7) +
+  geom_hline(yintercept = 1.5, lty = 2, alpha = 0.7) +
   
-  ylim(0, 1.5) +
   scale_color_manual(values = my_col) +
+  ylim(c(0, 1.5)) +
   labs(x = "") +
   theme_bw() +
   theme(legend.position = "none")  +
@@ -268,20 +231,28 @@ df_hbox_voi_long %>% dplyr::filter((grepl("second_alpha", metric))) %>%
 
 ```
 
-### Fig 3. Logistic regression modeling of uncomplicated and cerebral malaria subjects
+### Fig 3. Increased cerebral_hb_tot and decreased cerebral_hb_tot_alpha are distinct clinical features of cerebral malaria
 
 ```{r fig3_data}
 
-# include variables of interest
+# select model variables of interest
+model_voi <- c("subject_id", "status", 
+               "hct", "lactate",
+               "cerebral_hb_tot", "cerebral_hb_oxy",
+               "cerebral_hb_tot_alpha2", "cerebral_hb_oxy_alpha2")
 
-df_hbox_log_reg <- df_hbox %>% 
-  dplyr::select(c("subject_id", "Status", "Hematocrit", "Lactate", "avg_Hb_conc", "Hb_conc_second_alpha", "avg_Hb_o2sat", "Hb_o2sat_second_alpha"))
+df_model <- df_hbox %>% 
+  select_at(model_voi) %>% 
+  
+  # remove HC
+  ungroup %>% 
+  filter(status != "HC")
 
 # impute missing data with median by group
   f_impute <- function(x, na.rm = TRUE) (replace(x, is.na(x), median(x, na.rm = na.rm)))
   
-  df_hbox_impute <- df_hbox_log_reg %>% 
-    group_by(Status) %>% 
+  df_model_impute <- df_model %>% 
+    group_by(status) %>% 
     mutate_at(3:ncol(.), f_impute) %>% 
     ungroup() 
 
@@ -293,11 +264,11 @@ df_hbox_log_reg <- df_hbox %>%
 
 # calculate spearman correlations in each group
 
-f_calc_cor <- function(df, status) {
+f_calc_cor <- function(df, group) {
   
   m <- df %>%
-    dplyr::filter(Status == status) %>% 
-    dplyr::select(-c(subject_id, Status)) %>% 
+    dplyr::filter(status == group) %>% 
+    dplyr::select(-c(subject_id, status)) %>% 
     cor(method = "spearman")
   
   diag(m) <- 0
@@ -306,18 +277,18 @@ f_calc_cor <- function(df, status) {
 }
 
 # create run correlations of potential regressors
-m_cor_um <- df_hbox_impute %>% f_calc_cor(status = "UM")
+m_cor_um <- df_model_impute %>% f_calc_cor(group = "UM")
 
-m_cor_cm <- df_hbox_impute %>% f_calc_cor(status = "CM")
+m_cor_cm <- df_model_impute %>% f_calc_cor(group = "CM")
 
 # correlation matrix
 
 # write plot function
-f_plot_cor <- function(mat) {
+  f_plot_cor <- function(mat) {
   
   melt(mat) %>% 
     
-    mutate_if(is.factor, factor, levels = c("Lactate", "Hematocrit", "avg_Hb_o2sat", "avg_Hb_conc", "Hb_o2sat_second_alpha", "Hb_conc_second_alpha")) %>% 
+    mutate_if(is.factor, factor, levels = c("hct", "lactate", "cerebral_hb_oxy", "cerebral_hb_tot", "cerebral_hb_oxy_alpha2", "cerebral_hb_tot_alpha2")) %>% 
     
     ggplot(aes(x = X1, y = X2, fill = value, label = ifelse(value != 0, round(value, 2), NA))) + 
     geom_tile() +
@@ -338,6 +309,8 @@ f_plot_cor <- function(mat) {
   
 }
 
+# plot
+  
   # extract legend
   p_leg <- m_cor_um %>% f_plot_cor() %>% get_legend()
   
@@ -346,52 +319,56 @@ f_plot_cor <- function(mat) {
   
   m_cor_cm %>% f_plot_cor() + ggtitle("Cerebral malaria") + theme(legend.position = "none")
   
-  as_ggplot(p_leg)
+  # as_ggplot(p_leg)
 
 ```
 
 #### B. Principal component analysis
 
 ```{r fig3b}
-# remove healthy volunteers for logistic regression analysis
-df_hbox_impute <- df_hbox_impute %>% dplyr::filter(Status != "HC")
 
 # convert tibble to df
-df_hbox_df <- df_hbox_impute %>% 
-  dplyr::select(-c(subject_id, Status)) %>% 
+df_model_pca <- df_model_impute %>% 
+  dplyr::select(-c(subject_id, status)) %>% 
   as.data.frame() 
 
 # add rownames
-rownames(df_hbox_df) <- df_hbox_impute %>% .$subject_id
+rownames(df_model_pca) <- df_model_impute$subject_id
 
 # compute PCA
-my_pca <- prcomp(df_hbox_df, scale = TRUE)
+my_pca <- prcomp(df_model_pca, scale = TRUE)
 
 # define groups
-groups <- as.factor(df_hbox_impute$Status)
+groups <- as.factor(df_model_impute$status)
 
 # Eigenvalues
 pca_eig_val <- get_eigenvalue(my_pca)
 
 # two data frames for plotting
 df_vars <- my_pca$rotation %>% as_tibble() %>% mutate(variable = rownames(my_pca$rotation))
-df_pnts <- my_pca$x %>% as_tibble() %>% mutate(group = groups) 
+df_pnts <- my_pca$x %>% 
+  as_tibble() %>% 
+  mutate(status = groups, 
+         subject_id = df_model_impute$subject_id) 
 
 # plot
 
   # plot patients
-  ggplot() +
-  geom_point(data = df_pnts, mapping = aes(x = PC1, y = PC2, color = group), size = 3) +
-  stat_conf_ellipse(data = df_pnts, mapping = aes(x = PC1, y = PC2, color = group, fill = group),
+ggplot() +
+  geom_point(data = df_pnts, mapping = aes(x = PC1, y = PC2, color = status), size = 3) +
+  stat_conf_ellipse(data = df_pnts, mapping = aes(x = PC1, y = PC2, color = status, fill = status),
                     level = 0.95, npoint = 100, bary = TRUE, alpha = 0.1, geom = "polygon") +
-  stat_mean(data = df_pnts, mapping = aes(x = PC1, y = PC2, color = group, shape = group),
-            na.rm = FALSE) +
+  # stat_mean(data = df_pnts, mapping = aes(x = PC1, y = PC2, color = status, shape = status),
+  #           na.rm = FALSE) +
+  
+  # View patient IDs
+  # geom_text_repel(data = df_pnts, aes(x = PC1, y = PC2, label = subject_id, size = 10), show.legend = FALSE) +
   
   # plot variables
   # geom_point(data = df_vars, aes(x = PC1*5, y = PC2*5)) +
-  # geom_text_repel(data = df_vars, aes(x = PC1*5, y = PC2*5, label = variable, size = 10), show.legend = FALSE) +
+  geom_text_repel(data = df_vars, aes(x = PC1*5, y = PC2*5, label = variable, size = 10), show.legend = FALSE) +
   geom_segment(data = df_vars, aes(x = 0, y = 0, xend = PC1*5, yend = PC2*5), arrow = arrow()) +
-
+  
   # draw lines
   geom_vline(xintercept = 0, lty = 2, color = "black") +
   geom_hline(yintercept = 0, lty = 2, color = "black") +
@@ -409,14 +386,58 @@ df_pnts <- my_pca$x %>% as_tibble() %>% mutate(group = groups)
 
 ```
 
-
 #### C. Coefficients
-```{r table2c}
+
+```{r model, eval = FALSE}
+
+### shows how logistic regression model was set up and run, results saved in objects/glm_model ###
+
+# resample
+set.seed(234)
+hbox_boot <- bootstraps(df_model, strata = Status, times = 5000)
+
+# recipe
+hbox_rec <- recipe(Status ~ ., data = df_model) %>% 
+  step_impute_knn(all_predictors()) %>% 
+  step_normalize(all_predictors()) %>%
+  step_zv(all_predictors()) %>%
+  step_smote(Status) %>% 
+  update_role(subject_id, new_role = "id")
+
+# create workflow
+hbox_wf <- workflow() %>% add_recipe(hbox_rec)
+
+# logistic regression model specifications
+glm_spec <- logistic_reg() %>% set_engine("glm")
+
+# create model on 5000 different resamples
+glm_res <- hbox_wf %>% 
+  add_model(glm_spec) %>%
+  fit_resamples(
+    resamples = hbox_boot,
+    metrics = metric_set(roc_auc, accuracy, sensitivity, specificity),
+    control = tune::control_resamples(save_pred = TRUE, verbose = TRUE)
+  )
+
+# select best model to be used for evaluation
+glm_best <- glm_res %>% select_best("roc_auc")
+
+# finalize model
+hbox_final <- hbox_wf %>% 
+  add_model(glm_spec) %>% 
+  finalize_workflow(glm_best) %>%
+  fit(df_model) %>%
+  extract_fit_parsnip()
+
+```
+
+```{r table3c}
 
 df_CI <- confint(hbox_final$fit) %>% exp() %>% as_tibble(rownames = "term")
 
-table2c <- hbox_final %>%
+table3c <- hbox_final %>%
   tidy(exponentiate = TRUE) %>%
+  filter(p.value < 0.05) %>% 
   left_join(df_CI, by = "term") %>%
   mutate(estimate = ifelse(estimate < 10^-2, scientific(estimate, digits = 3), round(estimate, 2)),
          conf.low = ifelse(`2.5 %` < 10^-2, scientific(`2.5 %`, digits = 3), round(`2.5 %`, 2)),
@@ -429,136 +450,21 @@ table2c <- hbox_final %>%
                 "t-statistic" = "statistic", "p-value" = "p.value") %>%
   as.data.frame()
 
-table2c %>% knitr::kable(align = rep('c', 5))
+table3c %>% knitr::kable(align = rep('c', 5))
 
 ```
 
 #### D. ROC curve of final model
 
-```{r fig3d_prep, eval = FALSE}
-
-## write function to create model on given df
-
-f_log_reg_model <- function(df_model) {
-  
-  # resample
-  hbox_boot <- bootstraps(df_model, strata = Status, times = 1000)
-  
-  # recipe
-  hbox_rec <- recipe(Status ~ ., data = df_model) %>% 
-    step_BoxCox(all_predictors()) %>% 
-    step_nzv(all_predictors()) %>% 
-    step_smote(Status) # upsample to deal with unbalanced sample sizes
-  
-  # create workflow
-  hbox_wf <- workflow() %>% add_recipe(hbox_rec)
-  
-  # logistic regression model specifications
-  glm_spec <- logistic_reg() %>% set_engine("glm")
-  
-  # create model on resamples
-  glm_res <- hbox_wf %>% 
-    add_model(glm_spec) %>%
-    fit_resamples(
-      resamples = hbox_boot,
-      metrics = metric_set(roc_auc, accuracy, sensitivity, specificity),
-      control = tune::control_resamples(save_pred = TRUE, verbose = TRUE)
-    )
-  
-  # select best model to be used for evaluation
-  glm_best <- glm_res %>% select_best("roc_auc")
-  
-  # finalize model
-  hbox_final <- hbox_wf %>% 
-    add_model(glm_spec) %>% 
-    finalize_workflow(glm_best) %>%
-    fit(df_model) %>%
-    pull_workflow_fit()
-  
-  # view coefficients & p-values
-  model_coefs <- hbox_final %>% tidy()
-  
-  # return list including model and a table of best model variable statistics
-  list(glm_res, model_coefs)
-    
-}
-    
-## write function to collect predictions for ROC plot    
-   
-f_collect_preds <- function(glm_res) {
-  
-      glm_res %>% 
-      collect_predictions() %>% 
-      roc_curve(Status, .pred_CM)
-
-}
-    
-
-## Perform functions on all iterations of model
-
-set.seed(123)
-
-    # select starting variables
-    df_hbox_model1 <- df_hbox_log_reg %>% 
-      dplyr::select(c(Status, Hematocrit, Lactate, avg_Hb_o2sat, Hb_o2sat_second_alpha, avg_Hb_conc, Hb_conc_second_alpha)) %>% 
-      mutate(Status = factor(Status, levels = c("CM", "UM")))
-    
-    # model 1: Status ~ Hematocrit + Lactate + avg_Hb_o2sat + Hb_o2sat_second_alpha + avg_Hb_conc + Hb_conc_second_alpha
-    model1 <- f_log_reg_model(df_hbox_model1)
-    roc1 <- f_collect_preds(model1[[1]]) %>% mutate(model = "1")
-    model1[[2]] # remove Hb_o2sat_second_alpha (highest p-val)
-    
-    # model 2: Status ~ Hematocrit + Lactate + avg_Hb_o2sat + avg_Hb_conc + Hb_conc_second_alpha
-    df_hbox_model2 <-  df_hbox_model1 %>% dplyr::select(-Hb_o2sat_second_alpha)
-    model2 <- f_log_reg_model(df_hbox_model2)
-    roc2 <- f_collect_preds(model2[[1]]) %>% mutate(model = "2")
-    model2[[2]] # remove Lactate
-    
-    # model 3: Status ~ Hematocrit + avg_Hb_o2sat + avg_Hb_conc + Hb_conc_second_alpha
-    df_hbox_model3 <-  df_hbox_model2 %>% dplyr::select(-Lactate)
-    model3 <- f_log_reg_model(df_hbox_model3)
-    roc3 <- f_collect_preds(model3[[1]]) %>% mutate(model = "3")
-    model3[[2]] # remove avg_Hb_o2sat
-
-    # model 4: Status ~ Hematocrit + avg_Hb_conc + Hb_conc_second_alpha
-    df_hbox_model4 <-  df_hbox_model3 %>% dplyr::select(-avg_Hb_o2sat)
-    model4 <- f_log_reg_model(df_hbox_model4)
-    roc4 <- f_collect_preds(model4[[1]]) %>% mutate(model = "4")
-    model4[[2]] # none to remove, final model
-
-save(roc1, roc2, roc3, file = "roc_curves.Rdata")
-
-# calculate areas under curves
-
-library(MESS)
-roc1 <- roc1 %>% mutate(false_pos = 1 - specificity)
-auc(roc1$false_pos, roc1$sensitivity)
-
-roc2 <- roc2 %>% mutate(false_pos = 1 - specificity)
-auc(roc2$false_pos, roc2$sensitivity)
-
-roc3 <- roc3 %>% mutate(false_pos = 1 - specificity)
-auc(roc3$false_pos, roc3$sensitivity)
-
-roc_final <- glm_res %>% 
-  collect_predictions() %>% 
-  roc_curve(Status, .pred_0) %>% 
-  mutate(false_pos = 1 - specificity)
-auc(roc_final$false_pos, roc_final$sensitivity)
-
-```
-
 ```{r fig3d_plot, fig.height = 8}
 
 df_roc <- glm_res %>% 
   collect_predictions() %>% 
-  roc_curve(Status, .pred_0) %>% 
-  mutate(model = "final") %>% 
-  bind_rows(roc1, roc2, roc3) 
+  roc_curve(status, .pred_CM)
 
 ggplot() +
-  geom_path(data = df_roc %>% filter(model == "final"), 
-            aes(x = 1 - specificity, y = sensitivity, color = model), 
+  geom_path(data = df_roc, 
+            aes(x = 1 - specificity, y = sensitivity), 
             size = 2.5) +
   geom_abline(lty = 3) +
   labs(x = "False positive rate", y = "True positive rate") +
@@ -575,7 +481,8 @@ ggplot() +
 
 ```{r fig3d_inset}
 
-fig3d_inset <- collect_metrics(glm_res) %>% 
+fig3d_inset <- glm_res %>% 
+  collect_metrics() %>% 
   dplyr::select(.metric, mean, std_err) %>% 
   mutate(mean = mean*100, std_err = std_err*100) %>% 
   mutate(Metric = c("Accuracy", "ROC AUC", "Sensitivity", "Specificity")) %>% 
@@ -589,87 +496,189 @@ fig3d_inset %>% knitr::kable(align = rep('c', 4))
 
 ```
 
-### Fig 4. Explanatory model of how to interpret hemoglobin concentration
+### Fig 4. An increase in cerebral_hb_tot is significantly associated with an increase in brain swelling score
+
+```{r fig4_plot}
+
+# select model voi
+brain_swell_voi <- c("brain_swell", "cerebral_hb_tot", "hct")
+df_fig4 <- df_hbox %>% select_at(brain_swell_voi)
+
+# remove cerebral_hb_tot outliers
+  df_fig4_outliers <- df_fig4 %>% 
+    mutate(Q1_hbtot = quantile(cerebral_hb_tot, 0.25, na.rm = TRUE),
+           Q3_hbtot = quantile(cerebral_hb_tot, 0.75, na.rm = TRUE),
+           IQR_hbtot = Q3_hbtot - Q1_hbtot,
+           outlier_hbtot = case_when(
+             
+             cerebral_hb_tot < Q1_hbtot - IQR_hbtot ~ 1,
+             cerebral_hb_tot > Q3_hbtot + IQR_hbtot ~ 1,
+             TRUE ~ 0
+             
+           )
+           
+    ) %>% 
+    filter(outlier_hbtot != 1)
+
+# model
+  lm_fig4 <- lm(brain_swell ~ cerebral_hb_tot + hct, data = df_fig4_outliers)
+  f <- summary(lm_fig4)$fstatistic
+  p <- pf(f[1], f[2], f[3], lower.tail = FALSE)
+  
+  model <- "model: brain_swell ~ cerebral_hb_tot + hematocrit"
+  r2 <- paste0("adjusted R^2: ", lm_fig4 %>% summary() %>% .$adj.r.squared %>% round(2))
+  model_p_val <- paste0("model: ", round(p, 3))
+  hb_tot_p_val <- paste0("cerebral_hb_tot: ", lm_fig4 %>% tidy() %>% .[2, "p.value"] %>% .$p.value %>% round(3))
+  
+# plot variables
+require(ggpmisc)
+
+df_fig4_outliers %>% 
+  ggplot(aes(x = cerebral_hb_tot, y = brain_swell)) +
+  geom_point(shape = 1, aes(size = hct, color = as.factor(brain_swell))) +
+  #geom_abline(intercept = ) +
+  
+  geom_smooth(method = "lm", lty = 2, color = "#696969", alpha = 0.2) +
+  annotate("text", label = model, x = 25, y = 8, hjust = 0, vjust = 1, size = 5) +
+  annotate("text", label = r2, x = 25, y = 7.5, hjust = 0, vjust = 1, size = 5) +
+  annotate("text", label = "p-values", x = 25, y = 7, hjust = 0, vjust = 1, size = 5) +
+  annotate("text", label = model_p_val, x = 35, y = 6.75, hjust = 0, vjust = 1, size = 4) +
+  annotate("text", label = hb_tot_p_val, x = 35, y = 6.5, hjust = 0, vjust = 1, size = 4) +
+  
+  lims(x = c(25, 225)) +
+  theme_bw() +
+  
+  theme(# text = element_text(family = "Arial"),
+        strip.text = element_text(size = 15),
+        axis.title = element_text(size = 15),
+        axis.title.y = element_text(size = 15),
+        axis.text = element_text(size = 15),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10))
+
+# 3d plot?  
+# require(plotly)
+#   x <- df_fig4_outliers$cerebral_hb_tot
+#   y <- df_fig4_outliers$hematocrit
+#   z <- df_fig4_outliers$brain_swell
+#   
+#   df_fig4_outliers %>% plot_ly(x = x, y = y, z = z, type = "scatter3d", mode = "markers", color = x)
+
+```
+
+### Fig 5. Explanatory model of how to interpret hemoglobin concentration
 
 See manuscript draft (figure created in PowerPoint)
 
 ## Supplement
 ### SFig 1. DFA analysis illustration
 
-#### A. Pre-processed signal
-```{r fig_s3a}
+#### A. Raw signal
+```{r fig_s1a}
 
-df_thc_cumsum1 %>% 
+df_figs1a <- read.table("Data/signal_segments/Hb_tot/TM0001CM01.txt")
+
+df_figs1a %>% 
   
-  ggplot(aes(x = Time, y = sg_filt)) +
-  geom_line() +
-  
+  ggplot(aes(x = Time)) +
+  geom_line(aes(y = THC)) +
+
   labs(y = "Hemoglobin concentration (μM)", x = "Time (s)") +
+  ggtitle("Raw signal") +
+  theme_bw() +
+  theme(# text = element_text(family = "Arial"),
+        axis.text = element_text(size = 20),
+        axis.title = element_text(size = 25),
+        legend.text = element_text(size = 15),
+        legend.title = element_text(size = 20))
+
+```
+
+#### B. Processed signal
+```{r fig_s1b}
+
+df_figs1b <- read.table("Data/filtered_signals/0.2s_mean_0.001_1_filt/Hb_tot/TM0001CM01.txt") %>% mutate(time = row_number())
+
+df_figs1b %>% 
+  ggplot(aes(x = time)) +
+  geom_line(aes(y = V1)) +
+
+  lims(y = c(-0.001, 0.001)) +
+  
+  labs(y = "Bandpass filtered signal", x = "Time") +
   ggtitle("Pre-processed signal") +
   theme_bw() +
   theme(# text = element_text(family = "Arial"),
-        axis.text = element_text(size = 20),
+        axis.text = element_blank(),
         axis.title = element_text(size = 25),
         legend.text = element_text(size = 15),
         legend.title = element_text(size = 20))
 
 ```
 
-#### B. Cumulative sum
-```{r fig_s3b}
 
-df_thc_cumsum1 %>% 
+#### C. Cumulative sum
+```{r fig_s1c}
+
+df_figs1c <- df_figs1b %>% 
+  mutate(mean = mean(V1),
+         subtract_mean = V1 - mean,
+         cumsum = cumsum(subtract_mean))
   
-  ggplot(aes(x = Time, y = cumsum)) +
+df_figs1c %>% 
+  
+  ggplot(aes(x = time, y = cumsum)) +
   geom_line() +
-  geom_vline(xintercept = 1201, lty = 2, color = "black") +
-  geom_vline(xintercept = 1210, lty = 2, color = "black") +
+  geom_vline(xintercept = 1, lty = 2, color = "black") +
+  geom_vline(xintercept = 1000, lty = 2, color = "black") +
   
-  labs(y = "Cumulative sum", x = "Time (s)") +
+  labs(y = "Cumulative sum", x = "Time") +
   ggtitle("Cumulative signal") +
   theme_bw() +
   theme(# text = element_text(family = "Arial"),
-        axis.text = element_text(size = 20),
+        axis.text = element_blank(),
         axis.title = element_text(size = 25),
         legend.text = element_text(size = 15),
         legend.title = element_text(size = 20))
 
 ```
 
-#### C. Window detrend
-```{r fig_s3c, fig.show = "hold", out.width = "50%"}
+#### D. Window detrend
+```{r fig_s1d, fig.show = "hold", out.width = "50%"}
 
-fit <- lm(cumsum ~ Time, data = df_thc_cumsum1 %>% dplyr::filter(Time > 1201 & Time < 1210))
+fit <- lm(cumsum ~ time, data = df_figs1c %>% dplyr::filter(time > 1 & time < 1000))
 
 # Window 
-df_thc_cumsum1 %>% dplyr::filter(Time > 1201 & Time < 1210) %>% 
+df_figs1c %>% dplyr::filter(time > 1 & time < 1000) %>% 
   
-  ggplot(aes(x = Time, y = cumsum)) +
+  ggplot(aes(x = time, y = cumsum)) +
   geom_line(size = 2) +
   geom_abline(intercept = coef(fit)[1], slope = coef(fit)[2], color = "black", lty = 2, size = 2) +
   
-  labs(y = "Cumulative sum", x = "Time (s)") +
+  labs(y = "Cumulative sum", x = "Time") +
   ggtitle("Cumulative signal") +
   theme_bw() +
   theme(# text = element_text(family = "Arial"),
-        axis.text = element_text(size = 20),
+        axis.text.x = element_text(size = 20),
+        axis.text.y = element_blank(),
         axis.title = element_text(size = 25),
         legend.text = element_text(size = 15),
         legend.title = element_text(size = 20),
         title = element_text(size = 25))
 
 # Detrended
-df_thc_cumsum1 %>% dplyr::filter(Time > 1201 & Time < 1210) %>% 
+df_figs1c %>% dplyr::filter(time > 1 & time < 1000) %>% 
   
-  ggplot(aes(x = Time, y = fit$residuals)) +
+  ggplot(aes(x = time, y = fit$residuals)) +
   geom_line(size = 2) +
   geom_hline(yintercept = 0, color = "black", lty = 2, size = 2) +
   
-  labs(y = "", x = "Time (s)") +
+  labs(y = "", x = "Time") +
   ggtitle("Detrended cumulative signal") +
   theme_bw() +
   theme(# text = element_text(family = "Arial"),
-        axis.text = element_text(size = 25),
+        axis.text.x = element_text(size = 20),
+        axis.text.y = element_blank(),
         axis.title = element_text(size = 28),
         legend.text = element_text(size = 15),
         legend.title = element_text(size = 20),
@@ -677,15 +686,17 @@ df_thc_cumsum1 %>% dplyr::filter(Time > 1201 & Time < 1210) %>%
 
 ```
 
-#### D. Results plot
-```{r fig_s3d}
+#### E. Results plot
+```{r fig_s1e}
+
+df_figs1e <- l_dfa_hbtot[[1]][[1]]
 
 # find slope of segmented line
 library(segmented)
-df1 <- l_dfa_thc[[1]][[1]] %>% mutate(log10_avg_fluct = log10(avg_fluctuation), log10_window_size = log10(window_size))
-fit1 <- lm(log10_avg_fluct ~ log10_window_size, data = df1) 
-segfit1 <- segmented(fit1)
-slopes1 <- coef(segfit1) # the coefficients are the differences in slope in comparison to the previous slope
+df_figs1e <- df_figs1e %>% mutate(log10_avg_fluct = log10(avg_fluctuation), log10_window_size = log10(window_size))
+fit_figs1e <- lm(log10_avg_fluct ~ log10_window_size, data = df_figs1e) 
+segfit <- segmented(fit_figs1e)
+slopes <- coef(segfit) # the coefficients are the differences in slope in comparison to the previous slope
 
 # first line: 
 #y = b0 + b1*x; y = intercept1 + slope1 * x
@@ -694,21 +705,21 @@ slopes1 <- coef(segfit1) # the coefficients are the differences in slope in comp
 # y = c0 + c1*x; y = intercept2 + slope2 * x
 
 # At the breakpoint (break1), the segments b and c intersect: b0 + b1*x = c0 + c1*x
-b0 <- slopes1[[1]]
-b1 <- slopes1[[2]]
+b0 <- slopes[[1]]
+b1 <- slopes[[2]]
 
-c1 <- slopes1[[2]] + slopes1[[3]]
-break1 <- segfit1$psi[[2]]
+c1 <- slopes[[2]] + slopes[[3]]
+break1 <- segfit$psi[[2]]
 
 # Solve for c0 (intercept of second segment):
 c0 <- b0 + b1 * break1 - c1 * break1
 
-df1 %>% 
+df_figs1e %>% 
   
   ggplot(aes(x = log10_window_size, y = log10_avg_fluct)) +
   geom_point(size = 3, shape = 1) +
   geom_abline(intercept = c0, slope = c1, color = "black", lty = 2) +
-  annotate("text", x = -0.5, y = 2, label = paste0("alpha = ", round(c1, 2)), size = 8) +
+  annotate("text", x = -1, y = -2, label = paste0("alpha = ", round(c1, 2)), size = 8, vjust = 1, hjust = 0) +
   
   labs(x = "log10(window length)", y = "log10(average fluctuation)") +
   ggtitle("DFA results") +
@@ -722,22 +733,63 @@ df1 %>%
 
 ```
 
+#### F. Simulation results
+
+```{r fig_s1f}
+
+wn_alpha <- 1:length(l_wn_dfa) %>% purrr::map_df(~l_wn_dfa[[.x]][[2]]) %>% dplyr::rename("white" = "log10(window_size)")
+pn_alpha <- 1:length(l_pn_dfa) %>% purrr::map_df(~l_pn_dfa[[.x]][[2]]) %>% dplyr::rename("pink" = "log10(window_size)")
+bn_alpha <- 1:length(l_bn_dfa) %>% purrr::map_df(~l_bn_dfa[[.x]][[2]]) %>% dplyr::rename("brown" = "log10(window_size)")
+
+df_figs1f <- bind_cols(wn_alpha, pn_alpha, bn_alpha) %>%
+  pivot_longer(1:3, names_to = "noise", values_to = "alpha")
+
+# create color vector
+my_col <- c("white" = "#00BFC4", "brown" = "#7CAE00", "pink" = "#F8766D")
+
+# plot
+df_figs1f %>% 
+  
+  ggplot(aes(x = noise, y = alpha)) +
+  geom_violin(aes(color = noise)) +
+  geom_jitter(position = position_jitter(0.2), shape = 1, size = 2) +
+  stat_summary(fun = "median", geom = "crossbar", aes(color = noise), size = 0.2, width = 0.5) +
+
+  geom_hline(yintercept = 0.4, lty = 2, alpha = 0.7) +
+  geom_hline(yintercept = 0.6, lty = 2, alpha = 0.7) +
+  geom_hline(yintercept = 1.0, lty = 2, alpha = 0.7) +
+  geom_hline(yintercept = 1.5, lty = 2, alpha = 0.7) +
+  
+  scale_color_manual(values = my_col) +
+  labs(x = "noise type") +
+  scale_y_continuous(limits = c(0, 1.7)) +
+  theme_bw() +
+  theme(legend.position = "none")  +
+  
+  theme(# text = element_text(family = "Arial"),
+        strip.text = element_text(size = 15),
+        axis.title = element_text(size = 15),
+        axis.text = element_text(size = 15))
+
+```
+
+
 ### SFig 2. Logistic regression curves
 
 ```{r fig_s2, fig.height = 12}
 
 # pivot longer and change factor levels
-df_hbox_reg_long <- df_hbox_impute %>% 
-  mutate(Status = as.numeric(ifelse(Status == "CM", 1, 0))) %>% 
+df_figs2 <- df_model %>% 
+  mutate(status = as.numeric(ifelse(status == "CM", 1, 0))) %>% 
   pivot_longer(3:ncol(.), names_to = "variable", values_to = "value") %>% 
-  mutate(variable = factor(variable, levels = c("Lactate", "Hematocrit", "avg_Hb_o2sat", "avg_Hb_conc", "Hb_o2sat_second_alpha", "Hb_conc_second_alpha")))
+  mutate(variable = factor(variable, levels = c("hct", "lactate", "cerebral_hb_oxy", "cerebral_hb_tot", "cerebral_hb_oxy_alpha2", "cerebral_hb_tot_alpha2")))
 
 # plot as individual regression curves
-df_hbox_reg_long %>% 
+df_figs2 %>% 
   
-  ggplot(aes(x = value, y = Status)) +
+  ggplot(aes(x = value, y = status)) +
   geom_point() +
-  geom_smooth(method = "glm", method.args = list(family = "binomial")) +
+  geom_smooth(method = "glm", method.args = list(family = "binomial"), color = "black") +
   facet_wrap(~variable, scales = "free_x", nrow = 5, ncol = 2) +
   
   ylab("Status: 1 = CM, 0 = UM") +
@@ -754,4 +806,72 @@ df_hbox_reg_long %>%
 ```
 
 **Figure S2.** Plotted are the individual logistic regression curves of individual variables tested for their discriminatory power between UM and CM. On the y-axis, 1 represents CM while 0 represents UM. A steeper curve indicates higher discriminatory power.
+
+
+## Table of manuscript p-values
+
+```{r manuscript_stats, eval = FALSE}
+
+# select voi
+df_stats <- df_hbox %>% 
+  select(c("status", 
+           
+           # clinical
+           "age_calc", "temperature", "hr", "bp_sys", "bp_dias", "resp_rate", "pulse_ox", "hct", "lactate", "glucose", "aa_arg",   
+           
+           # concentrations
+           matches("_hb_tot$|_hb_oxy$"),
+           
+           # alphas
+           matches("alpha2")
+           
+  ))
+
+# perform kruskal-wallis test on all variables
+df_pvals <- 2:ncol(df_stats) %>% 
+  purrr::map_dfr(~tibble(
+    
+    variable = names(df_stats[.x]),
+    kw_pval = kruskal.test(df_stats[[.x]] ~ df_stats$status)$p.value,
+    um_hc = DunnTest(df_stats[[.x]] ~ df_stats$status)[[1]][1, 2],
+    cm_hc = DunnTest(df_stats[[.x]] ~ df_stats$status)[[1]][2, 2],
+    cm_um = DunnTest(df_stats[[.x]] ~ df_stats$status)[[1]][3, 2]
+
+  ))
+
+df_pvals %>% knitr::kable()
+
+# write to csv
+write.csv(df_pvals, file = "Outputs/manuscript_pvals.csv")
+
+```
+
+```{r export_xlsx, eval = FALSE}
+
+require(xlsx)
+
+wb <- createWorkbook()
+
+sheet = createSheet(wb, "Table 1a")
+
+  addDataFrame(df_clinical_res %>% as.data.frame(), sheet = sheet, startColumn = 1, row.names = FALSE)
+
+sheet = createSheet(wb, "Table 1b")
+
+  addDataFrame(df_cm_voi %>% count(bcs_session) %>% as.data.frame(), sheet = sheet, startColumn = 1, row.names = FALSE)
+  addDataFrame(df_cm_voi %>% count(brain_swell) %>% as.data.frame(), sheet = sheet, startColumn = 4, row.names = FALSE)
+  addDataFrame(df_cm_hrp2 %>% as.data.frame(), sheet = sheet, startColumn = 7, row.names = FALSE)
+
+sheet = createSheet(wb, "Table 3c & d")
+
+  addDataFrame(table3c %>% as.data.frame(), sheet = sheet, startColumn = 1, row.names = FALSE)
+  addDataFrame(fig3d_inset %>% as.data.frame(), sheet = sheet, startColumn = 7, row.names = FALSE)
+  
+sheet = createSheet(wb, "manuscript p-vals")
+
+  addDataFrame(df_pvals %>% as.data.frame(), sheet = sheet, startColumn = 1, row.names = FALSE)
+
+saveWorkbook(wb, "Outputs/all_manuscript_tables.xlsx")
+
+```
 

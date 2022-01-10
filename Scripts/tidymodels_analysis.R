@@ -14,6 +14,7 @@
         library(usemodels)
         library(ranger)
         library(vip)
+        library(janitor)
 
 
 
@@ -222,299 +223,93 @@
         
 # Logistic regression model --------------------------------------------------------------
 
+        
+      
+        df_model <- read_csv("Data/Hans_datatable_exports/malawi key data v04Jan2022.csv") %>% 
+          as_tibble() %>% 
+          janitor::clean_names() %>% 
+          dplyr::rename("subject_id" = "subject_id_session") %>% 
+          
+          dplyr::filter(status %in% c("CM", "UM") & session_no == 1 | subject_id == "TM0003CM01") %>% 
+          dplyr::filter(!grepl("blood", subject_id)) %>% 
+          mutate(status = factor(status, levels = c("CM", "UM"))) %>% 
+          select(subject_id, status, hct, lactate, cerebral_hb_tot, cerebral_hb_tot_alpha2, cerebral_hb_oxy, cerebral_hb_oxy_alpha2) %>% 
+          mutate_at(3:8, as.numeric)
+        
+        # look at missing data
+        df_model %>% is.na %>% colSums
+        df_model %>% filter(is.na(cerebral_hb_oxy_alpha2))
+        
+        require(naniar)
+        df_model %>% select(-c(subject_id, status)) %>% gg_miss_upset() # 12 pts missing all 4 NIRS voi
+        df_model %>% count(status) 
+        
+        # remove patients with all 4 NIRS variables missing
+        df_model <- df_model %>% drop_na(contains("hb_tot"))
+        df_model %>% select(-c(subject_id, status)) %>% gg_miss_upset() # 3 patients missing hb_oxy, 3 missing hb_oxy_alpha, 3 missing both, 2 missing lactate, 1 missing hct & lactate
 
-        # Data
-        df_model <- df_master_voi %>% select(-subject_id)
+        # add 1/10 alpha as variable
+        df_model <- df_model %>% 
+          mutate(one_tenth_cerebral_hb_tot_alpha = 1/10 * cerebral_hb_tot_alpha2,
+                 one_tenth_cerebral_hb_oxy_alpha = 1/10 * cerebral_hb_oxy_alpha2) %>% 
+          select(-c(cerebral_hb_tot_alpha2, cerebral_hb_oxy_alpha2))
         
-        ## write function to create model on given df
+        # resample
+        set.seed(234)
+        hbox_boot <- bootstraps(df_model, strata = status, times = 5000)
         
-        f_log_reg_model <- function(df_model, times) {
-          
-          # resample
-          hbox_boot <- bootstraps(df_model, strata = Status, times = times)
-          
-          # recipe
-          hbox_rec <- recipe(Status ~ ., data = df_model) %>% 
-            step_BoxCox(all_predictors()) %>% # Box-Cox transformation of data
-            step_nzv(all_predictors()) %>% # remove variables with non-zero variance
-            step_impute_knn(all_predictors()) %>% # impute using KNN
-            step_smote(Status) # upsample to deal with unbalanced sample sizes
-          
-          # create workflow
-          hbox_wf <- workflow() %>% add_recipe(hbox_rec)
-          
-          # logistic regression model specifications
-          glm_spec <- logistic_reg() %>% set_engine("glm")
-          
-          # create model on resamples
-          glm_res <- hbox_wf %>% 
-            add_model(glm_spec) %>%
-            fit_resamples(
-              resamples = hbox_boot,
-              metrics = metric_set(roc_auc, accuracy, sensitivity, specificity),
-              control = tune::control_resamples(save_pred = TRUE, verbose = TRUE)
-            )
-          
-          # select best model to be used for evaluation
-          glm_best <- glm_res %>% select_best("roc_auc")
-          
-          # finalize model
-          hbox_final <- hbox_wf %>% 
-            add_model(glm_spec) %>% 
-            finalize_workflow(glm_best) %>%
-            fit(df_model) %>%
-            pull_workflow_fit()
-          
-          # view coefficients & p-values
-          model_coefs <- hbox_final %>% tidy()
-          
-          # return list including model and a table of best model variable statistics
-          list(glm_res, model_coefs)
-          
-        }
+        # recipe
+        hbox_rec <- recipe(status ~ ., data = df_model) %>% 
+          step_impute_knn(all_predictors()) %>% 
+          step_normalize(all_predictors()) %>%
+          step_zv(all_predictors()) %>%
+          step_smote(status) %>% 
+          update_role(subject_id, new_role = "id")
         
+        # create workflow
+        hbox_wf <- workflow() %>% add_recipe(hbox_rec)
         
-
-
-        ## Perform functions on all iterations of model
+        # logistic regression model specifications
+        glm_spec <- logistic_reg() %>% set_engine("glm")
         
-        set.seed(123)
+        # create model on 5000 different resamples
+        require(doParallel)
+        doParallel::registerDoParallel()
         
-        # select starting variables
-        df_hbox_model1 <- df_hbox_log_reg %>% 
-          dplyr::select(c(Status, Hematocrit, Lactate, avg_Hb_o2sat, Hb_o2sat_second_alpha, avg_Hb_conc, Hb_conc_second_alpha)) %>% 
-          mutate(Status = factor(Status, levels = c("CM", "UM")))
+        glm_res <- hbox_wf %>% 
+          add_model(glm_spec) %>%
+          fit_resamples(
+            resamples = hbox_boot,
+            metrics = metric_set(roc_auc, accuracy, sensitivity, specificity),
+            control = tune::control_resamples(save_pred = TRUE, verbose = TRUE)
+          )
+        
+        # select best model to be used for evaluation
+        glm_best <- glm_res %>% select_best("roc_auc")
+        
+        # finalize model
+        hbox_final <- hbox_wf %>% 
+          add_model(glm_spec) %>% 
+          finalize_workflow(glm_best) %>%
+          fit(df_model) %>%
+          extract_fit_parsnip()
+        
+        # metrics
+        collect_metrics(glm_res) %>% 
+          dplyr::select(.metric, mean, std_err) %>% 
+          mutate(mean = mean*100, std_err = std_err*100)
+        
+        # coefficients
+        df_CI <- confint(hbox_final$fit) %>% exp() %>% as_tibble(rownames = "term")
+        hbox_final %>%
+          tidy(exponentiate = TRUE) %>% 
+          left_join(df_CI, by = "term") %>% 
+          select(term, estimate, `2.5 %`, `97.5 %`, statistic, p.value) %>% 
+          filter(term != "(Intercept)") %>% 
+          arrange(p.value)
         
         
-        
-        # Finalize model
-                
-                # finalize workflow
-                final_rf <- ranger_workflow %>% 
-                        finalize_workflow(select_best(ranger_tune, metric = "accuracy")) 
-                
-                hbox_fit <- last_fit(final_rf, hbox_split) # fitting to training data, evaluating on testing
-                
-                collect_metrics(hbox_fit) # computed on test set
-                
-                # collect predictions on test set
-                collect_predictions(hbox_fit) %>% 
-                        
-                        filter(Status != .pred_class) # only got one wrong
-                
-        # Determine variable importance
-
-                # new specification for ranger model
-                imp_spec <- ranger_spec %>% 
-                        finalize_model(select_best(ranger_tune, metric = "accuracy")) %>% 
-                        set_engine("ranger", importance = "permutation")
-                
-                # plot importance 
-                workflow() %>% 
-                        add_recipe(ranger_recipe) %>% 
-                        add_model(imp_spec) %>% 
-                        fit(hbox_train) %>% 
-                        pull_workflow_fit() %>% 
-                        vip(aesthetics = list(alpha = 0.8, fill = "midnightblue"))
-                
-
-
-        
-# Same procedure but only with NIRS data --------------------------------------------------------------
-                
-                
-        # Data
-        hbox_df2 <- df_hbox_impute %>% select(c(Status, DeoxyHb, DeoxyHb_alpha, OxyHb, OxyHb_alpha, O2sat, O2sat_alpha, THC, THC_alpha, THC_sd))
-                
-        # Build a model
-                
-                # split data set
-                set.seed(123)
-                hbox_split2 <- initial_split(hbox_df2, strata = Status)
-                hbox_train2 <- training(hbox_split2)
-                hbox_test2 <- testing(hbox_split2)  
-                
-                # resamples (not a lot of data, need to use cross validation)
-                set.seed(234)
-                vfold_cv(hbox_train, strata = Status) # test too small
-                hbox_folds2 <- bootstraps(hbox_train2, strata = Status)
-                
-                # Scaffolding for setting up common types of models
-                use_ranger(Status ~ ., data = hbox_df2)
-                
-                # Copy usemodels code...
-                
-                # Create recipe
-                ranger_recipe2 <- 
-                        recipe(formula = Status ~ ., data = hbox_df2) %>% 
-                        
-                        # BoxCox transformation to normality
-                        step_BoxCox(all_predictors(), -all_outcomes()) %>% 
-                        
-                        # remove variables with non-zero variance
-                        step_nzv(all_predictors(), -all_outcomes()) %>% 
-                        
-                        # impute missing data using K-nearest neighbors
-                        step_knnimpute(all_predictors(), -all_outcomes()) 
-                
-                # Model specifications (set for tuning)
-                ranger_spec2 <- 
-                        rand_forest(mtry = tune(), min_n = tune(), trees = 1000) %>% 
-                        set_mode("classification") %>% 
-                        set_engine("ranger") 
-                
-                # Create workflow
-                ranger_workflow2 <- 
-                        workflow() %>% 
-                        add_recipe(ranger_recipe2) %>% 
-                        add_model(ranger_spec2) 
-                
-        # Tune model
-                
-                # Initial tune on bootstraps
-                set.seed(84374)
-                ranger_tune2 <-
-                        tune_grid(ranger_workflow2, 
-                                  resamples = hbox_folds2, 
-                                  grid = 11)
-                
-                # Explore tuning results
-                show_best(ranger_tune2, metric = "roc_auc")
-                show_best(ranger_tune2, metric = "accuracy")
-                
-                # Visualize results
-                autoplot(ranger_tune2)
-                
-        # Finalize model
-                
-                # finalize workflow
-                final_rf2 <- ranger_workflow2 %>% 
-                        finalize_workflow(select_best(ranger_tune2, metric = "accuracy")) 
-                
-                hbox_fit2 <- last_fit(final_rf2, hbox_split2) # fitting to training data, evaluating on testing
-                
-                collect_metrics(hbox_fit2) # computed on test set
-                
-                # collect predictions on test set
-                collect_predictions(hbox_fit2) %>% 
-                        
-                        filter(Status != .pred_class) # 6 wrong
-                
-        # Determine variable importance
-                
-                # new specification for ranger model
-                imp_spec2 <- ranger_spec2 %>% 
-                        finalize_model(select_best(ranger_tune2, metric = "accuracy")) %>% 
-                        set_engine("ranger", importance = "permutation")
-                
-                # plot importance 
-                workflow() %>% 
-                        add_recipe(ranger_recipe2) %>% 
-                        add_model(imp_spec2) %>% 
-                        fit(hbox_train2) %>% 
-                        pull_workflow_fit() %>% 
-                        vip(aesthetics = list(alpha = 0.8, fill = "midnightblue"))
-                
-
-
-                
-# Same procedure but only with other data --------------------------------------------------------------
-                
-                
-        # Data
-        hbox_df3 <- df_hbox_impute %>% select(-c(subject_id, DeoxyHb, DeoxyHb_alpha, OxyHb, OxyHb_alpha, O2sat, O2sat_alpha, THC, THC_alpha, THC_sd))
-                
-        # Build a model
-                
-                # split data set
-                set.seed(1234)
-                hbox_split3 <- initial_split(hbox_df3, strata = Status)
-                hbox_train3 <- training(hbox_split3)
-                hbox_test3 <- testing(hbox_split3)  
-                
-                # resamples (not a lot of data, need to use cross validation)
-                set.seed(2345)
-                vfold_cv(hbox_train3, strata = Status) # test too small
-                hbox_folds3 <- bootstraps(hbox_train3, strata = Status)
-                
-                # Scaffolding for setting up common types of models
-                use_ranger(Status ~ ., data = hbox_df3)
-                
-                # Copy usemodels code...
-                
-                # Create recipe
-                ranger_recipe3 <- 
-                        recipe(formula = Status ~ ., data = hbox_df3) %>% 
-                        
-                        # BoxCox transformation to normality
-                        step_BoxCox(all_predictors(), -all_outcomes()) %>% 
-                        
-                        # remove variables with non-zero variance
-                        step_nzv(all_predictors(), -all_outcomes()) %>% 
-                        
-                        # impute missing data using K-nearest neighbors
-                        step_knnimpute(all_predictors(), -all_outcomes()) 
-                
-                # Model specifications (set for tuning)
-                ranger_spec3 <- 
-                        rand_forest(mtry = tune(), min_n = tune(), trees = 1000) %>% 
-                        set_mode("classification") %>% 
-                        set_engine("ranger") 
-                
-                # Create workflow
-                ranger_workflow3 <- 
-                        workflow() %>% 
-                        add_recipe(ranger_recipe3) %>% 
-                        add_model(ranger_spec3) 
-                
-        # Tune model
-                
-                # Initial tune on bootstraps
-                set.seed(8434)
-                ranger_tune3 <-
-                        tune_grid(ranger_workflow3, 
-                                  resamples = hbox_folds3, 
-                                  grid = 11)
-                
-                # Explore tuning results
-                show_best(ranger_tune3, metric = "roc_auc")
-                show_best(ranger_tune3, metric = "accuracy")
-                
-                # Visualize results
-                autoplot(ranger_tune3)
-                
-        # Finalize model
-                
-                # finalize workflow
-                final_rf3 <- ranger_workflow3 %>% 
-                        finalize_workflow(select_best(ranger_tune3, metric = "accuracy")) 
-                
-                hbox_fit3 <- last_fit(final_rf3, hbox_split3) # fitting to training data, evaluating on testing
-                
-                collect_metrics(hbox_fit3) # computed on test set
-                
-                # collect predictions on test set
-                collect_predictions(hbox_fit3) %>% 
-                        
-                        filter(Status != .pred_class) # 6 wrong
-                
-        # Determine variable importance
-                
-                # new specification for ranger model
-                imp_spec3 <- ranger_spec3 %>% 
-                        finalize_model(select_best(ranger_tune3, metric = "accuracy")) %>% 
-                        set_engine("ranger", importance = "permutation")
-                
-                # plot importance 
-                workflow() %>% 
-                        add_recipe(ranger_recipe3) %>% 
-                        add_model(imp_spec3) %>% 
-                        fit(hbox_train3) %>% 
-                        pull_workflow_fit() %>% 
-                        vip(aesthetics = list(alpha = 0.8, fill = "midnightblue"))
-                
-                
-                
+        save(glm_res, hbox_final, file = "objects/glm_model.Rdata")     
                 
                 
                 

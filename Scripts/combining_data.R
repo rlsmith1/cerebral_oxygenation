@@ -73,8 +73,6 @@
         rbindlist() %>% as_tibble()
       
       
-      
-
 
 # format and combine data -------------------------------------------------------------
 
@@ -94,22 +92,22 @@
         select(-c(contains("alpha"), cerebral_hb_oxy, cerebral_hb_tot)) %>% 
         
         # add muscle alphas & medians
-        right_join(df_bp_alphas_muscle %>% 
+        full_join(df_bp_alphas_muscle %>% 
                      select(-c(X, contains("breakpoint"))) %>% 
-                     left_join(df_med_hboxy_muscle, by = "subject_id") %>% 
-                     left_join(df_med_hbtot_muscle, by = "subject_id"), 
+                    full_join(df_med_hboxy_muscle, by = "subject_id") %>% 
+                    full_join(df_med_hbtot_muscle, by = "subject_id"), 
                    by = c("subject_id", "Status")) %>% 
         
         # add brain alphas & medians
-        left_join(df_bp_alphas_brain %>% 
+        full_join(df_bp_alphas_brain %>% 
                     select(-c(X, contains("breakpoint"))) %>% 
                     rename_with(~paste0("cerebral_", .x), 3:8) %>% 
-                    left_join(df_med_hboxy_brain, by = "subject_id") %>% 
-                    left_join(df_med_hbtot_brain, by = "subject_id"), 
+                    full_join(df_med_hboxy_brain, by = "subject_id") %>% 
+                    full_join(df_med_hbtot_brain, by = "subject_id"), 
                   by = c("subject_id", "Status")) %>% 
         
         # replace missing UM values
-        left_join(df_bp_alphas_brain_missing_um, by = c("subject_id", "Status")) %>%
+        full_join(df_bp_alphas_brain_missing_um, by = c("subject_id", "Status")) %>%
         mutate(cerebral_hbtot_overall_a = ifelse(subject_id %in% subjs, cerebral_hbtot_overall_a.y, cerebral_hbtot_overall_a.x),
                cerebral_hbtot_short_a = ifelse(subject_id %in% subjs, cerebral_hbtot_short_a.y, cerebral_hbtot_short_a.x),
                cerebral_hbtot_long_a = ifelse(subject_id %in% subjs, cerebral_hbtot_long_a.y, cerebral_hbtot_long_a.x),
@@ -119,6 +117,12 @@
                cerebral_hb_tot = ifelse(subject_id %in% subjs, cerebral_hb_tot.y, cerebral_hb_tot.x),
                cerebral_hb_oxy = ifelse(subject_id %in% subjs, cerebral_hb_oxy.y, cerebral_hb_oxy.x)) %>% 
         select(-contains(".y"), -contains(".x")) %>%
+        
+        # convert lactate to numeric
+        mutate(Lactate = as.numeric(Lactate)) %>% 
+        
+        # remove duplicate subject_ids
+        filter(!is.na(Status)) %>% 
         
         # reorganize
         select(c(subject_id, Status, session.no, order(colnames(.)))) %>% 
@@ -133,9 +137,8 @@
 
   # Remove patients labeled as "UM" that instead meet the WHO criteria for severe malaria
   
-    # remove UM patient with lactate > 5 
-    df_master <- df_master %>% dplyr::filter(!(Status == "UM" & Lactate > 5))
-    
+    # in final analyses, remove UM patient with lactate > 5 
+
     # All UM patients have hematocrit > 15%
     # df_master %>% dplyr::filter(Status == "UM"  & Hematocrit <= 15)
   
@@ -151,8 +154,8 @@
   df_master %>% count(subject_id) %>% dplyr::filter(n > 1)
 
 
-  # any negative Hb o2 sat?
-  df_master <- df_master %>% dplyr::filter(cerebral_hb_oxy > 20)
+  # in final analysis, remove any Hb_oxy < 20
+  # df_master <- df_master %>% dplyr::filter(cerebral_hb_oxy > 20)
   
   
   
