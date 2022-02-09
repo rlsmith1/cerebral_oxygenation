@@ -817,7 +817,9 @@ df_fig1_fig2_stats <-
   df_fig1 %>% 
     group_by(variable, status) %>% 
     dplyr::select(value) %>% 
-    summarise_all(funs(median = median, q1 = quantile(., probs = 0.25), q3 = quantile(., probs = 0.75)), na.rm = TRUE) %>% 
+    summarise_all(funs(median = median, 
+                       q1 = quantile(., probs = 0.25), 
+                       q3 = quantile(., probs = 0.75)), na.rm = TRUE) %>% 
     mutate_if(is.numeric, round, 2) %>% 
   
   bind_rows(
@@ -825,7 +827,9 @@ df_fig1_fig2_stats <-
     df_fig2 %>% 
       group_by(variable, status) %>% 
       dplyr::select(value) %>% 
-      summarise_all(funs(median = median, q1 = quantile(., probs = 0.25), q3 = quantile(., probs = 0.75)), na.rm = TRUE) %>% 
+      summarise_all(funs(median = median, 
+                         q1 = quantile(., probs = 0.25), 
+                         q3 = quantile(., probs = 0.75)), na.rm = TRUE) %>% 
       mutate_if(is.numeric, round, 2)
     
   )
