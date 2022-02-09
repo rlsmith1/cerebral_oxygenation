@@ -815,7 +815,7 @@ df_figs2 %>%
 df_fig1_fig2_stats <- 
   
   df_fig1 %>% 
-    group_by(variable, status) %>% 
+    group_by(tissue, variable, status) %>% 
     dplyr::select(value) %>% 
     summarise_all(funs(median = median, 
                        q1 = quantile(., probs = 0.25), 
@@ -825,7 +825,7 @@ df_fig1_fig2_stats <-
   bind_rows(
     
     df_fig2 %>% 
-      group_by(variable, status) %>% 
+      group_by(tissue, variable, status) %>% 
       dplyr::select(value) %>% 
       summarise_all(funs(median = median, 
                          q1 = quantile(., probs = 0.25), 
