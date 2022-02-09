@@ -810,6 +810,29 @@ df_figs2 %>%
 
 ## Table of manuscript p-values
 
+```{r fig_1_and_2_stats, eval = FALSE}
+
+df_fig1_fig2_stats <- 
+  
+  df_fig1 %>% 
+    group_by(variable, status) %>% 
+    dplyr::select(value) %>% 
+    summarise_all(funs(median = median, q1 = quantile(., probs = 0.25), q3 = quantile(., probs = 0.75)), na.rm = TRUE) %>% 
+    mutate_if(is.numeric, round, 2) %>% 
+  
+  bind_rows(
+    
+    df_fig2 %>% 
+      group_by(variable, status) %>% 
+      dplyr::select(value) %>% 
+      summarise_all(funs(median = median, q1 = quantile(., probs = 0.25), q3 = quantile(., probs = 0.75)), na.rm = TRUE) %>% 
+      mutate_if(is.numeric, round, 2)
+    
+  )
+
+
+```
+
 ```{r manuscript_stats, eval = FALSE}
 
 # select voi
@@ -861,6 +884,10 @@ sheet = createSheet(wb, "Table 1b")
   addDataFrame(df_cm_voi %>% count(bcs_session) %>% as.data.frame(), sheet = sheet, startColumn = 1, row.names = FALSE)
   addDataFrame(df_cm_voi %>% count(brain_swell) %>% as.data.frame(), sheet = sheet, startColumn = 4, row.names = FALSE)
   addDataFrame(df_cm_hrp2 %>% as.data.frame(), sheet = sheet, startColumn = 7, row.names = FALSE)
+  
+sheet = createSheet(wb, "Figs 1 & 2 stats")
+
+  addDataFrame(df_fig1_fig2_stats %>% as.data.frame(), sheet = sheet, startColumn = 1, row.names = FALSE)
 
 sheet = createSheet(wb, "Table 3c & d")
 
