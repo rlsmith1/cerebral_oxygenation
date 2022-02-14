@@ -1,7 +1,7 @@
 ---
 title: "Cerebral oxygenation manuscript figures"
 date: "`r Sys.Date()`"
-output: html_document
+output: pdf_document
 ---
 
 <style type="text/css">
@@ -13,7 +13,8 @@ output: html_document
 
 ```{r setup, include=FALSE}
 
-knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, comment = "", fig.height = 6, fig.width = 10)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, comment = "", fig.height = 6, fig.width = 10, 
+                      fig.align = 'center')
 
 # Load libraries
 library(tidyverse)
@@ -122,7 +123,7 @@ df_sex <- df_hbox %>%
   df_clinical_res %>% knitr::kable(align = rep('c', 4))
 
 ```
-**Table 1a.** A summary of subject information and hematological data. Group patient data presented as median (quartile 1, quartile 3). 
+**Table 1a.** A summary of subject information and hematological data. Group patient data presented as median (quartile 1, quartile 3).
 
 #### Table 1b. CM-specific data
 ```{r table1b, eval = FALSE}
@@ -156,7 +157,6 @@ df_cm_hrp2 %>% knitr::kable()
 **Table 1b.** CM-specific clinical characteristics
 
 ### Fig 1. Hb_oxy and Hb_tot in the brain and muscle
-
 ```{r fig1}
 
 # extract hb_tot and hb_oxy for the brain and muscle
@@ -190,9 +190,9 @@ df_fig1 %>%
         axis.text = element_text(size = 15))
 
 ```
-
+ \newpage
+ 
 ### Fig 2. Hb_oxy alpha and Hb_tot alpha in the brain and muscle
-
 ```{r fig2}
 
 # extract hb_tot and hb_oxy for the brain and muscle
@@ -230,9 +230,9 @@ df_fig2 %>%
         axis.text = element_text(size = 15))
 
 ```
-
+ \newpage
+ 
 ### Fig 3. Increased cerebral_hb_tot and decreased cerebral_hb_tot_alpha are distinct clinical features of cerebral malaria
-
 ```{r fig3_data}
 
 # select model variables of interest
@@ -259,7 +259,6 @@ df_model <- df_hbox %>%
 ```
 
 #### A. Correlations of variables within subject groups
-
 ```{r fig3a, fig.show = "hold", out.width = "50%", fig.height = 12, fig.width = 15}
 
 # calculate spearman correlations in each group
@@ -322,9 +321,9 @@ m_cor_cm <- df_model_impute %>% f_calc_cor(group = "CM")
   # as_ggplot(p_leg)
 
 ```
-
+\newpage
+ 
 #### B. Principal component analysis
-
 ```{r fig3b}
 
 # convert tibble to df
@@ -385,9 +384,9 @@ ggplot() +
         legend.title = element_text(size = 20))
 
 ```
-
+\newpage
+ 
 #### C. Coefficients
-
 ```{r model, eval = FALSE}
 
 ### shows how logistic regression model was set up and run, results saved in objects/glm_model ###
@@ -448,14 +447,17 @@ table3c <- hbox_final %>%
   dplyr::select(c(term, estimate, `95% CI`, statistic, p.value)) %>% 
   dplyr::rename("Term" = "term", "Odds ratio" = "estimate",
                 "t-statistic" = "statistic", "p-value" = "p.value") %>%
+  filter(Term != "(Intercept)") %>% 
   as.data.frame()
 
 table3c %>% knitr::kable(align = rep('c', 5))
 
 ```
+**note: for the OR, denominator is probability of patient having CM; numerator is p patient having UM
 
+\newpage
+ 
 #### D. ROC curve of final model
-
 ```{r fig3d_plot, fig.height = 8}
 
 df_roc <- glm_res %>% 
@@ -495,8 +497,77 @@ fig3d_inset <- glm_res %>%
 fig3d_inset %>% knitr::kable(align = rep('c', 4))
 
 ```
-
+\newpage
+ 
 ### Fig 4. An increase in cerebral_hb_tot is significantly associated with an increase in brain swelling score
+```{r brainswell_model_comparison, eval = FALSE}
+
+# remove cerebral_hb_tot outliers
+  df_hbox_hbtot_outliers <- df_hbox %>% 
+    mutate(Q1_hbtot = quantile(cerebral_hb_tot, 0.25, na.rm = TRUE),
+           Q3_hbtot = quantile(cerebral_hb_tot, 0.75, na.rm = TRUE),
+           IQR_hbtot = Q3_hbtot - Q1_hbtot,
+           outlier_hbtot = case_when(
+             
+             cerebral_hb_tot < Q1_hbtot - IQR_hbtot ~ 1,
+             cerebral_hb_tot > Q3_hbtot + IQR_hbtot ~ 1,
+             TRUE ~ 0
+             
+           )
+           
+    ) %>% 
+    filter(outlier_hbtot != 1)
+
+lm1 <- lm(brain_swell ~ cerebral_hb_tot, data = df_hbox_hbtot_outliers)
+lm2 <- lm(brain_swell ~ cerebral_hb_tot + hct, data = df_hbox_hbtot_outliers)
+lm3 <- lm(brain_swell ~ cerebral_hb_tot + cerebral_hb_tot_alpha2, data = df_hbox_hbtot_outliers)
+lm4 <- lm(brain_swell ~ cerebral_hb_tot + cerebral_hb_tot_alpha2 + hct, data = df_hbox_hbtot_outliers)
+lm5 <- lm(brain_swell ~ cerebral_hb_oxy + cerebral_hb_oxy_alpha2 + cerebral_hb_tot, data = df_hbox_hbtot_outliers)
+
+# evaluate parameters for all models
+brain_swell_models <- list(lm1, lm2, lm3, lm4, lm5)
+
+df_brain_swell_models <- tibble(formula = as.character(),
+                                term = as.character(),
+                                aic = as.numeric(),
+                                r2 = as.numeric(),
+                                adj_r2 = as.numeric(),
+                                model_p_val = as.numeric(),
+                                estimate = as.numeric(),
+                                std_error = as.numeric(),
+                                statistic = as.numeric(),
+                                term_p_val = as.numeric())
+
+for (i in 1:length(brain_swell_models)) {
+  
+  formula <- brain_swell_models[[i]] %>% .$call
+  formula <- gsub(".*=", "", formula)[[2]]
+  
+  aic <- brain_swell_models[[i]] %>% AIC
+  r2 <- brain_swell_models[[i]] %>% summary %>% .$r.squared
+  adj_r2 <- brain_swell_models[[i]] %>% summary %>% .$adj.r.squared
+  f <- brain_swell_models[[i]] %>% summary %>% .$fstatistic
+  p <- pf(f[1], f[2], f[3], lower.tail = FALSE)
+  coef <- brain_swell_models[[i]] %>% tidy %>% filter(term != "(Intercept)") %>% dplyr::rename("term_p_val" = "p.value")
+  
+  df_tmp <- tibble(formula = formula,
+                   term = coef$term,
+                   aic = aic,
+                   r2 = r2,
+                   adj_r2 = adj_r2,
+                   model_p_val = p) %>%
+    left_join(coef) %>%
+    clean_names
+
+  df_brain_swell_models <- df_brain_swell_models %>% 
+    bind_rows(df_tmp) %>% 
+    relocate(term, .before = estimate)
+  
+}
+
+df_brain_swell_models %>% write.csv(file = "outputs/brain_swell_models.csv")
+
+```
 
 ```{r fig4_plot}
 
@@ -539,11 +610,11 @@ df_fig4_outliers %>%
   #geom_abline(intercept = ) +
   
   geom_smooth(method = "lm", lty = 2, color = "#696969", alpha = 0.2) +
-  annotate("text", label = model, x = 25, y = 8, hjust = 0, vjust = 1, size = 5) +
-  annotate("text", label = r2, x = 25, y = 7.5, hjust = 0, vjust = 1, size = 5) +
-  annotate("text", label = "p-values", x = 25, y = 7, hjust = 0, vjust = 1, size = 5) +
-  annotate("text", label = model_p_val, x = 35, y = 6.75, hjust = 0, vjust = 1, size = 4) +
-  annotate("text", label = hb_tot_p_val, x = 35, y = 6.5, hjust = 0, vjust = 1, size = 4) +
+  # annotate("text", label = model, x = 25, y = 8, hjust = 0, vjust = 1, size = 5) +
+  # annotate("text", label = r2, x = 25, y = 7.5, hjust = 0, vjust = 1, size = 5) +
+  # annotate("text", label = "p-values", x = 25, y = 7, hjust = 0, vjust = 1, size = 5) +
+  # annotate("text", label = model_p_val, x = 35, y = 6.75, hjust = 0, vjust = 1, size = 4) +
+  # annotate("text", label = hb_tot_p_val, x = 35, y = 6.5, hjust = 0, vjust = 1, size = 4) +
   
   lims(x = c(25, 225)) +
   theme_bw() +
@@ -565,7 +636,10 @@ df_fig4_outliers %>%
 #   df_fig4_outliers %>% plot_ly(x = x, y = y, z = z, type = "scatter3d", mode = "markers", color = x)
 
 ```
-
+**Figure 4.** model: brain_swell ~ cerebral_hb_tot + hematocrit; adjusted R^2: 0.25; model p-value: 0.007; cerebral_hb_tot p-value: 0.003
+ 
+\newpage
+ 
 ### Fig 5. Explanatory model of how to interpret hemoglobin concentration
 
 See manuscript draft (figure created in PowerPoint)
@@ -593,7 +667,8 @@ df_figs1a %>%
         legend.title = element_text(size = 20))
 
 ```
-
+ \newpage
+ 
 #### B. Processed signal
 ```{r fig_s1b}
 
@@ -615,8 +690,8 @@ df_figs1b %>%
         legend.title = element_text(size = 20))
 
 ```
-
-
+ \newpage
+ 
 #### C. Cumulative sum
 ```{r fig_s1c}
 
@@ -642,7 +717,8 @@ df_figs1c %>%
         legend.title = element_text(size = 20))
 
 ```
-
+ \newpage
+ 
 #### D. Window detrend
 ```{r fig_s1d, fig.show = "hold", out.width = "50%"}
 
@@ -685,7 +761,8 @@ df_figs1c %>% dplyr::filter(time > 1 & time < 1000) %>%
         title = element_text(size = 25))
 
 ```
-
+ \newpage
+ 
 #### E. Results plot
 ```{r fig_s1e}
 
@@ -732,9 +809,9 @@ df_figs1e %>%
         legend.title = element_text(size = 20))
 
 ```
-
+ \newpage
+ 
 #### F. Simulation results
-
 ```{r fig_s1f}
 
 wn_alpha <- 1:length(l_wn_dfa) %>% purrr::map_df(~l_wn_dfa[[.x]][[2]]) %>% dplyr::rename("white" = "log10(window_size)")
@@ -772,10 +849,9 @@ df_figs1f %>%
         axis.text = element_text(size = 15))
 
 ```
-
+ \newpage
 
 ### SFig 2. Logistic regression curves
-
 ```{r fig_s2, fig.height = 12}
 
 # pivot longer and change factor levels
@@ -804,9 +880,7 @@ df_figs2 %>%
         strip.text = element_text(size = 20))
 
 ```
-
 **Figure S2.** Plotted are the individual logistic regression curves of individual variables tested for their discriminatory power between UM and CM. On the y-axis, 1 represents CM while 0 represents UM. A steeper curve indicates higher discriminatory power.
-
 
 ## Table of manuscript p-values
 
