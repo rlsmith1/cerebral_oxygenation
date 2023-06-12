@@ -1,0 +1,725 @@
+---
+title: "Revise LR model"
+author: "Rachel Smith"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include = FALSE}
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      fig.height = 5.5, fig.width = 8)
+
+# libraries
+library(tidyverse)
+library(RColorBrewer)
+library(gridExtra)
+library(patchwork)
+library(Hmisc)
+library(corrr)
+library(tidymodels)
+library(themis)
+library(vip)
+library(janitor)
+
+# set theme for plots
+theme_set(theme_bw() +
+            theme(plot.title = element_text(size = 18),
+                  axis.title = element_text(size = 15),
+                  axis.text = element_text(size = 12),
+                  strip.text = element_text(size = 12),
+                  legend.title = element_text(size = 15),
+                  legend.text = element_text(size = 12)))
+
+# create color vector
+my_col <- c("CM" = "#00BFC4", "HC" = "#7CAE00", "UM" = "#F8766D")
+
+```
+
+```{r data, echo = FALSE}
+
+# load
+df_hbox <- read_csv("Data/Hans_datatable_exports/malawi key data v04Jan2022.csv") %>% 
+  as_tibble() %>% 
+  janitor::clean_names() %>% 
+  mutate(status = replace(status, status == "HV", "HC")) %>% 
+  dplyr::rename("subject_id" = "subject_id_session") %>% 
+  
+  dplyr::filter(status %in% c("CM", "HC", "UM") & session_no == 1 | subject_id == "TM0003CM01") %>% 
+  dplyr::filter(!grepl("blood", subject_id)) %>% 
+  mutate(status = factor(status, levels = c("HC", "UM", "CM"))) %>% 
+  mutate_at(c("bp_dias", "bp_sys", "glucose", "lactate"), as.numeric) %>% # converts remaining character variables to numerics
+  select(subject_id, status, everything()) %>% 
+  group_by(status)
+
+# format
+  # define clinical variables of interest
+  clinical_voi <- c("age_calc", "temperature", "hr", "bp_sys", "bp_dias", "resp_rate", "pulse_ox", "hct", "lactate", "glucose", "aa_arg")
+  hbox_voi <- c("cerebral_hb_tot", "cerebral_hb_tot_alpha2")
+  
+  # select clinical VOI
+  df_model <- df_hbox %>% 
+    dplyr::select(c(status, sex, all_of(hbox_voi), all_of(clinical_voi))) %>% 
+    mutate(sex_coded = ifelse(sex == "Female", 1, 0)) %>% 
+    dplyr::select(-sex)
+  
+  # impute missing data with median by group
+  f_impute <- function(x, na.rm = TRUE) (replace(x, is.na(x), median(x, na.rm = na.rm)))
+  
+  df_model_impute <- df_model %>% 
+    group_by(status) %>% 
+    mutate_at(2:ncol(.), f_impute) %>% 
+    ungroup() 
+
+```
+
+```{r p_distributions, fig.height = 8, fig.width = 10}
+
+df_model %>% 
+  pivot_longer(2:ncol(.), names_to = "variable", values_to = "value") %>% 
+  mutate(variable = factor(variable, levels = c(clinical_voi, "sex_coded", hbox_voi))) %>% 
+  filter(!(variable == "age_calc" & value > 20000)) %>% 
+  
+  ggplot(aes(x = value)) +
+  geom_density(aes(fill = status), alpha = 0.5) +
+  facet_wrap(~ variable, scales = "free") +
+  labs(x = "") +
+  ggtitle("Distributions of variables of interest")
+
+```
+
+```{r correlate}
+
+# correlation
+df_cor_r <- df_model_impute %>% 
+  group_by(status) %>% 
+  nest() %>% 
+  mutate(corr = map(.x = data, 
+                    .f = ~ .x %>% 
+                      correlate %>% 
+                      dplyr::select(term, contains("cerebral_hb_tot")) %>% 
+                      filter(term %in% clinical_voi) 
+  )
+  ) %>% 
+  unnest(cols = c(corr)) %>% 
+  pivot_longer(4:5, names_to = "voi", values_to = "r") %>% 
+  mutate(voi = ifelse(voi == "cerebral_hb_tot", "Hb_tot", "Hb_tot_a") %>% factor()) %>% 
+  mutate(term = factor(term, levels = clinical_voi))
+
+# p-values
+df_cor_p <- df_model_impute %>% 
+  group_by(status) %>% 
+  nest() %>% 
+  mutate(corr = map(.x = data, 
+                    .f = ~ .x %>% 
+                      as.data.frame %>% 
+                      as.matrix %>% 
+                      rcorr %>% 
+                      .$P %>% 
+                      corrr::as_cordf() %>% 
+                      dplyr::select(term, contains("cerebral_hb_tot")) %>% 
+                      filter(term %in% clinical_voi) 
+  )
+  ) %>% 
+  unnest(cols = c(corr)) %>% 
+  pivot_longer(4:5, names_to = "voi", values_to = "p") %>% 
+  mutate(voi = ifelse(voi == "cerebral_hb_tot", "Hb_tot", "Hb_tot_a") %>% factor()) %>% 
+  mutate(term = factor(term, levels = clinical_voi))
+
+# combine for plot
+df_plot_cor <- df_cor_r %>% 
+  left_join(df_cor_p) %>% #filter(status == "HC")
+  mutate(label = as.character(round(r, 2)),
+         label = ifelse(p < 0.05, paste0(label, "*"), label))
+
+```
+
+```{r p_correlations}
+
+df_plot_cor %>% 
+  ggplot() +
+  geom_tile(aes(x = voi, y = term, fill = r)) +
+  geom_text(aes(x = voi,y = term, label = label)) +
+  facet_wrap( ~ status) +
+  labs(x = "", y = "") +
+  scale_fill_gradient2(high = "#B2182B", mid = "white", low = "#2166AC",
+                       limits = c(-1, 1)) +
+  ylim(rev(levels(df_cor_p$term))) +
+  ggtitle("Correlations of clinical variables with cerebral Hb_tot") +
+  theme_classic() +
+  theme(plot.title = element_text(size = 18),
+        axis.title = element_text(size = 15),
+        axis.text = element_text(size = 12),
+        strip.text = element_text(size = 15),
+        legend.title = element_text(size = 15),
+        legend.text = element_text(size = 12))
+
+```
+*denotes significant correlation (p < 0.05)
+
+```{r p_sig_cor}
+
+p_um1 <- df_hbox %>% 
+  filter(status == "UM") %>% 
+  dplyr::select(cerebral_hb_tot, hr) %>% 
+  
+  ggplot(aes(x = cerebral_hb_tot, y = hr, color = status)) +
+  geom_point(size = 2, show.legend = FALSE) +
+  geom_smooth(method = "lm", color = "black", lty = 2, se = FALSE) +
+  annotate(geom = "text", 
+           label = "r = -0.44; p < 0.01",
+           x = 300, y = 160,
+           size = 5) + 
+  scale_color_manual(values = my_col) +
+  ggtitle("UM HR & Hb_tot")
+
+p_um2 <- df_hbox %>% 
+  filter(status == "UM") %>% 
+  dplyr::select(cerebral_hb_tot, hct) %>% 
+  
+  ggplot(aes(x = cerebral_hb_tot, y = hct, color = status)) +
+  geom_point(size = 2, show.legend = FALSE) +
+  geom_smooth(method = "lm", color = "black", lty = 2, se = FALSE) +
+  annotate(geom = "text",
+           label = "r = 0.39; p = 0.03",
+           x = 300, y = 27,
+           size = 5) +
+  scale_color_manual(values = my_col) +
+  ggtitle("UM Hematocrit & Hb_tot")
+
+p_hc1 <- df_hbox %>% 
+  filter(status == "HC") %>% 
+  dplyr::select(cerebral_hb_tot, aa_arg) %>% 
+  
+  ggplot(aes(x = cerebral_hb_tot, y = aa_arg, color = status)) +
+  geom_point(size = 2, show.legend = FALSE) +
+  geom_smooth(method = "lm", color = "black", lty = 2, se = FALSE) +
+  annotate(geom = "text",
+           label = "r = 0.51; p < 0.01",
+           x = 95, y = 45,
+           size = 5) +
+  scale_color_manual(values = my_col) +
+  ggtitle("HC arg & Hb_tot")
+
+p_hc2 <- df_hbox %>% 
+  filter(status == "HC") %>% 
+  dplyr::select(cerebral_hb_tot_alpha, aa_arg) %>% 
+  
+  ggplot(aes(x = cerebral_hb_tot_alpha, y = aa_arg, color = status)) +
+  geom_point(size = 2, show.legend = FALSE) +
+  geom_smooth(method = "lm", color = "black", lty = 2, se = FALSE) +
+  annotate(geom = "text",
+           label = "r = -0.43; p = 0.02",
+           x = 1.02, y = 45,
+           size = 5) +
+  scale_color_manual(values = my_col) +
+  ggtitle("HC arg & Hb_tot_a")
+
+(p_um1 + p_um2) / (p_hc1 + p_hc2)
+
+```
+
+```{r lr_model}
+
+# write function to run LR model
+f_run_lr <- function(df_model, resamples) {
+  
+  # resample
+  hbox_boot <- bootstraps(df_model, strata = status, times = resamples)
+  
+  # recipe
+  hbox_rec <- recipe(status ~ ., data = df_model) %>% 
+    step_impute_knn(all_predictors()) %>% 
+    step_normalize(all_predictors()) %>%
+    step_zv(all_predictors()) %>%
+    step_smote(status) %>% 
+    update_role(subject_id, new_role = "id")
+  
+  # create workflow
+  hbox_wf <- workflow() %>% add_recipe(hbox_rec)
+  
+  # logistic regression model specifications
+  glm_spec <- logistic_reg() %>% set_engine("glm")
+  
+  # create model on 5000 different resamples
+  glm_res <- hbox_wf %>% 
+    add_model(glm_spec) %>%
+    fit_resamples(
+      resamples = hbox_boot,
+      metrics = metric_set(roc_auc, accuracy, sensitivity, specificity),
+      control = tune::control_resamples(save_pred = TRUE, verbose = TRUE)
+    )
+  
+  # select best model to be used for evaluation
+  glm_best <- glm_res %>% select_best("roc_auc")
+  
+  # finalize model
+  hbox_wf %>% 
+    add_model(glm_spec) %>% 
+    finalize_workflow(glm_best) %>%
+    fit(df_model) %>%
+    extract_fit_parsnip()
+  
+  
+}
+
+```
+
+### Cerebral Hb_tot model fitting
+
+status ~ Hb_tot + age_calc + bp_sys + bp_dias + hr + hct + lactate + aa_arg + sex
+```{r hb_tot_model1}
+
+# VOI: age_calc, bp_sys, bp_dias, hr, hct, lactate, and aa_arg plus either Hb_tot or Hb_tot_a. I would probably include sex as well
+
+df_model <- df_hbox %>% 
+  mutate(sex = ifelse(sex == "Female", 1, 0)) %>% 
+  filter(status != "HC") %>% 
+  mutate(status = factor(status, levels = c("UM", "CM")))
+
+set.seed(20221117)
+
+# 1. status ~ Hb_tot + age_calc + bp_sys + bp_dias + hr + hct + lactate + aa_arg + sex
+hbtot_final1 <- f_run_lr(df_model %>% 
+                           dplyr::select(subject_id, status, cerebral_hb_tot, 
+                                         aa_arg, age_calc, bp_sys, bp_dias, hct, hr, lactate, sex), 
+                       10)
+
+hbtot_final1 %>% 
+  tidy %>% 
+  knitr::kable() # AIC 86.9
+
+```
+
+status ~ Hb_tot + age_calc + bp_sys + bp_dias + hr + hct + lactate + sex
+```{r hb_tot_model2}
+
+# 2. status ~ Hb_tot + age_calc + bp_sys + bp_dias + hr + hct + lactate + sex
+hbtot_final2 <- f_run_lr(df_model %>% 
+                           dplyr::select(subject_id, status, cerebral_hb_tot, 
+                                         age_calc, bp_sys, bp_dias, hct, hr, lactate, sex), 
+                       10)
+
+hbtot_final2 %>% 
+  tidy %>% 
+  knitr::kable() # AIC 85.6
+
+```
+
+status ~ Hb_tot + age_calc + bp_dias + hr + hct + lactate + sex
+```{r hb_tot_model3}
+
+# 3. status ~ Hb_tot + age_calc + bp_dias + hr + hct + lactate + sex
+hbtot_final3 <- f_run_lr(df_model %>% 
+                           dplyr::select(subject_id, status, cerebral_hb_tot, 
+                                         age_calc, bp_dias, hct, hr, lactate, sex), 
+                       10)
+
+hbtot_final3 %>% 
+  tidy %>% 
+  knitr::kable() # AIC 83.52
+
+```
+
+status ~ Hb_tot + bp_dias + hr + hct + lactate + sex
+```{r hb_tot_model4}
+
+# 4. status ~ Hb_tot + bp_dias + hr + hct + lactate + sex
+hbtot_final4 <- f_run_lr(df_model %>% 
+                           dplyr::select(subject_id, status, cerebral_hb_tot, 
+                                         bp_dias, hct, hr, lactate, sex), 
+                       10)
+
+hbtot_final4 %>% 
+  tidy %>% 
+  knitr::kable() # AIC 82.83
+
+```
+
+status ~ Hb_tot + hr + hct + lactate + sex
+```{r hb_tot_model5}
+
+# 5. status ~ Hb_tot + hr + hct + lactate + sex
+hbtot_final5 <- f_run_lr(df_model %>% 
+                           dplyr::select(subject_id, status, cerebral_hb_tot, 
+                                         hct, hr, lactate, sex), 
+                       10)
+
+hbtot_final5 %>% 
+  tidy %>% 
+  knitr::kable() # AIC 81.36
+
+```
+
+status ~ Hb_tot + hct + lactate + sex
+```{r hb_tot_model6}
+
+# 6. status ~ Hb_tot + hct + lactate + sex
+
+set.seed(20221118)
+
+# resample
+hbtot_boot <- bootstraps(df_model, strata = status, times = 5000)
+
+# recipe
+hbtot_rec <- recipe(status ~ cerebral_hb_tot + hct + lactate + sex + subject_id, data = df_model) %>% 
+  step_impute_knn(all_predictors()) %>% 
+  step_normalize(all_predictors()) %>%
+  step_zv(all_predictors()) %>%
+  step_smote(status) %>% 
+  update_role(subject_id, new_role = "id")
+
+# create workflow
+hbtot_wf <- workflow() %>% add_recipe(hbtot_rec)
+
+# logistic regression model specifications
+hbtot_glm_spec <- logistic_reg() %>% set_engine("glm")
+
+# create model on 5000 different resamples
+hbtot_glm_res <- hbtot_wf %>% 
+  add_model(hbtot_glm_spec) %>%
+  fit_resamples(
+    resamples = hbtot_boot,
+    metrics = metric_set(roc_auc, accuracy, sensitivity, specificity),
+    control = tune::control_resamples(save_pred = TRUE, verbose = TRUE)
+  )
+
+# select best model to be used for evaluation
+hbtot_glm_best <- hbtot_glm_res %>% select_best("roc_auc")
+
+# finalize model
+hbtot_final6 <- hbtot_wf %>% 
+  add_model(hbtot_glm_spec) %>% 
+  finalize_workflow(hbtot_glm_best) %>%
+  fit(df_model) %>%
+  extract_fit_parsnip()
+
+hbtot_final6 %>% 
+  tidy %>% 
+  knitr::kable() # AIC 82.17, every term is significant
+
+```
+
+```{r assess_hb_tot_model}
+
+df_CI <- confint(hbtot_final6$fit) %>% exp() %>% as_tibble(rownames = "term")
+
+hbtot_final6 %>%
+  tidy(exponentiate = TRUE) %>%
+  filter(p.value < 0.05) %>% 
+  left_join(df_CI, by = "term") %>%
+  mutate(estimate = ifelse(estimate < 10^-2, scientific(estimate, digits = 3), round(estimate, 2)),
+         conf.low = ifelse(`2.5 %` < 10^-2, scientific(`2.5 %`, digits = 3), round(`2.5 %`, 2)),
+         conf.high = ifelse(`97.5 %` < 10^-2, scientific(`97.5 %`, digits = 3), round(`97.5 %`, 2))) %>%
+  mutate(p.value = scientific(p.value, digits = 3),
+         statistic = round(statistic, 2)) %>%
+  unite("95% CI", c(conf.low, conf.high), sep = ", ") %>%
+  dplyr::select(c(term, estimate, `95% CI`, statistic, p.value)) %>% 
+  dplyr::rename("Term" = "term", "Odds ratio" = "estimate",
+                "t-statistic" = "statistic", "p-value" = "p.value") %>%
+  filter(Term != "(Intercept)") %>% 
+  as.data.frame() %>% 
+  
+  knitr::kable(align = rep('c', 5))
+
+hbtot_glm_res %>% 
+  collect_metrics() %>% 
+  dplyr::select(.metric, mean, std_err) %>% 
+  mutate(mean = mean*100, std_err = std_err*100) %>% 
+  mutate(Metric = c("Accuracy", "ROC AUC", "Sensitivity", "Specificity")) %>% 
+  dplyr::select(c("Metric", "mean", "std_err")) %>% 
+  
+  dplyr::rename("Mean" = "mean", "Standard error" = "std_err") %>% 
+  mutate_if(is.numeric, round, 2) %>% 
+  as.data.frame() %>% 
+  
+  knitr::kable()
+
+```
+
+```{r hb_tot_imp, fig.height = 4}
+
+set.seed(123)
+hbtot_imp <- hbtot_wf %>% 
+  add_model(hbtot_glm_spec) %>% 
+  fit(df_model) %>% 
+  pull_workflow_fit() %>% 
+  
+  vi(
+    method = "permute", nsim = 10,
+    train = juice(hbtot_rec %>% prep()),
+    target = "status", metric = "auc", reference_class = "CM",
+    pred_wrapper = kernlab::predict
+    
+  )
+
+hbtot_imp %>% 
+  clean_names %>% 
+  filter(variable != "subject_id") %>% 
+  mutate(variable = fct_reorder(variable, importance)) %>% 
+  
+  ggplot(aes(x = importance, y = variable, color = variable)) +
+  geom_errorbar(aes(xmin = importance - st_dev, xmax = importance + st_dev),
+                alpha = 0.5, size = 1.3) +
+  geom_point(size = 3) +
+  theme(legend.position = "none",
+        plot.title = element_text(size = 18),
+        axis.title = element_text(size = 15),
+        axis.text = element_text(size = 12),
+        strip.text = element_text(size = 12),
+        legend.title = element_text(size = 15),
+        legend.text = element_text(size = 12)) +
+  labs(y = NULL, x = "relative importance") +
+  ggtitle("Variable importance in distinguishing CM vs UM")
+
+```
+
+
+### Cerebral Hb_tot_alpha model fitting
+
+status ~ Hb_tot_alpha + age_calc + bp_sys + bp_dias + hr + hct + lactate + aa_arg + sex
+```{r hb_tot_alpha_model1}
+
+# 1. status ~ Hb_tot_alpha + age_calc + bp_sys + bp_dias + hr + hct + lactate + aa_arg + sex
+hbtot_alpha_final1 <- f_run_lr(df_model %>% 
+                           dplyr::select(subject_id, status, cerebral_hb_tot_alpha2, 
+                                         aa_arg, age_calc, bp_sys, bp_dias, hct, hr, lactate, sex), 
+                       10)
+
+hbtot_alpha_final1 %>% 
+  tidy %>% 
+  knitr::kable() # AIC 64.6
+
+```
+
+status ~ Hb_tot_alpha + age_calc + bp_sys + bp_dias + hct + lactate + aa_arg + sex
+```{r hb_tot_alpha_model2}
+
+# 2. status ~ Hb_tot_alpha + age_calc + bp_sys + bp_dias + hct + lactate + aa_arg + sex
+hbtot_alpha_final2 <- f_run_lr(df_model %>% 
+                           dplyr::select(subject_id, status, cerebral_hb_tot_alpha2, 
+                                         aa_arg, age_calc, bp_sys, bp_dias, hct, lactate, sex), 
+                       10)
+
+hbtot_alpha_final2 %>% 
+  tidy %>% 
+  knitr::kable() # AIC 67.99
+
+```
+
+status ~ Hb_tot_alpha + age_calc + bp_sys + bp_dias + hct + lactate + sex
+```{r hb_tot_alpha_model3}
+
+# 3. status ~ Hb_tot_alpha + age_calc + bp_sys + bp_dias + hct + lactate + sex
+hbtot_alpha_final3 <- f_run_lr(df_model %>% 
+                           dplyr::select(subject_id, status, cerebral_hb_tot_alpha2, 
+                                         age_calc, bp_sys, bp_dias, hct, lactate, sex), 
+                       10)
+
+hbtot_alpha_final3 %>% 
+  tidy %>% 
+  knitr::kable() # AIC 61.78
+
+```
+
+status ~ Hb_tot_alpha + bp_sys + bp_dias + hct + lactate + sex
+```{r hb_tot_alpha_model4}
+
+# 4. status ~ Hb_tot_alpha + bp_sys + bp_dias + hct + lactate + sex
+hbtot_alpha_final4 <- f_run_lr(df_model %>% 
+                           dplyr::select(subject_id, status, cerebral_hb_tot_alpha2, 
+                                         bp_sys, bp_dias, hct, lactate, sex), 
+                       10)
+
+hbtot_alpha_final4 %>% 
+  tidy %>% 
+  knitr::kable() # AIC 60.53
+
+```
+
+status ~ Hb_tot_alpha + bp_dias + hct + lactate + sex
+```{r hb_tot_alpha_model5}
+
+# 5. status ~ Hb_tot_alpha + bp_dias + hct + lactate + sex
+hbtot_alpha_final5 <- f_run_lr(df_model %>% 
+                           dplyr::select(subject_id, status, cerebral_hb_tot_alpha2, 
+                                         bp_dias, hct, lactate, sex), 
+                       10)
+
+hbtot_alpha_final5 %>% 
+  tidy %>% 
+  knitr::kable() # AIC 61.65
+
+```
+
+status ~ Hb_tot_alpha + hct + lactate + sex
+```{r hb_tot_alpha_model6}
+
+# 6. status ~ Hb_tot_alpha + hct + lactate + sex
+hbtot_alpha_final6 <- f_run_lr(df_model %>% 
+                           dplyr::select(subject_id, status, cerebral_hb_tot_alpha2, 
+                                         hct, lactate, sex), 
+                       10)
+
+hbtot_alpha_final6 %>% 
+  tidy %>% 
+  knitr::kable() # AIC 67.5
+
+```
+
+status ~ Hb_tot_alpha + hct + sex
+```{r hb_tot_alpha_model7}
+
+# 7. status ~ Hb_tot_alpha + hct + sex
+
+set.seed(20221118)
+
+# resample
+hbtot_alpha_boot <- bootstraps(df_model, strata = status, times = 5000)
+
+# recipe
+hbtot_alpha_rec <- recipe(status ~ cerebral_hb_tot_alpha2 + hct + sex + subject_id, data = df_model) %>% 
+  step_impute_knn(all_predictors()) %>% 
+  step_normalize(all_predictors()) %>%
+  step_zv(all_predictors()) %>%
+  step_smote(status) %>% 
+  update_role(subject_id, new_role = "id")
+
+# create workflow
+hbtot_alpha_wf <- workflow() %>% add_recipe(hbtot_alpha_rec)
+
+# logistic regression model specifications
+hbtot_alpha_glm_spec <- logistic_reg() %>% set_engine("glm")
+
+# create model on 5000 different resamples
+hbtot_alpha_glm_res <- hbtot_alpha_wf %>% 
+  add_model(hbtot_alpha_glm_spec) %>%
+  fit_resamples(
+    resamples = hbtot_alpha_boot,
+    metrics = metric_set(roc_auc, accuracy, sensitivity, specificity),
+    control = tune::control_resamples(save_pred = TRUE, verbose = TRUE)
+  )
+
+# select best model to be used for evaluation
+hbtot_alpha_glm_best <- hbtot_alpha_glm_res %>% select_best("roc_auc")
+
+# finalize model
+hbtot_alpha_final7 <- hbtot_alpha_wf %>% 
+  add_model(hbtot_alpha_glm_spec) %>% 
+  finalize_workflow(hbtot_alpha_glm_best) %>%
+  fit(df_model) %>%
+  extract_fit_parsnip()
+
+hbtot_alpha_final7 %>% 
+  tidy %>% 
+  knitr::kable() # AIC 65.23
+
+```
+
+```{r assess_hb_tot_alpha_model}
+
+df_CI <- confint(hbtot_alpha_final7$fit) %>% exp() %>% as_tibble(rownames = "term")
+
+hbtot_alpha_final7 %>%
+  tidy(exponentiate = TRUE) %>%
+  filter(p.value < 0.05) %>% 
+  left_join(df_CI, by = "term") %>%
+  mutate(estimate = ifelse(estimate < 10^-2, scientific(estimate, digits = 3), round(estimate, 2)),
+         conf.low = ifelse(`2.5 %` < 10^-2, scientific(`2.5 %`, digits = 3), round(`2.5 %`, 2)),
+         conf.high = ifelse(`97.5 %` < 10^-2, scientific(`97.5 %`, digits = 3), round(`97.5 %`, 2))) %>%
+  mutate(p.value = scientific(p.value, digits = 3),
+         statistic = round(statistic, 2)) %>%
+  unite("95% CI", c(conf.low, conf.high), sep = ", ") %>%
+  dplyr::select(c(term, estimate, `95% CI`, statistic, p.value)) %>% 
+  dplyr::rename("Term" = "term", "Odds ratio" = "estimate",
+                "t-statistic" = "statistic", "p-value" = "p.value") %>%
+  filter(Term != "(Intercept)") %>% 
+  as.data.frame() %>% 
+  
+  knitr::kable(align = rep('c', 5))
+
+hbtot_alpha_glm_res %>% 
+  collect_metrics() %>% 
+  dplyr::select(.metric, mean, std_err) %>% 
+  mutate(mean = mean*100, std_err = std_err*100) %>% 
+  mutate(Metric = c("Accuracy", "ROC AUC", "Sensitivity", "Specificity")) %>% 
+  dplyr::select(c("Metric", "mean", "std_err")) %>% 
+  
+  dplyr::rename("Mean" = "mean", "Standard error" = "std_err") %>% 
+  mutate_if(is.numeric, round, 2) %>% 
+  as.data.frame() %>% 
+  
+  knitr::kable()
+
+```
+
+```{r hb_tot_alpha_imp, fig.height = 4}
+
+set.seed(123)
+hbtot_alpha_imp <- hbtot_alpha_wf %>% 
+  add_model(hbtot_alpha_glm_spec) %>% 
+  fit(df_model) %>% 
+  pull_workflow_fit() %>% 
+  
+  vi(
+    method = "permute", nsim = 10,
+    train = juice(hbtot_alpha_rec %>% prep()),
+    target = "status", metric = "auc", reference_class = "CM",
+    pred_wrapper = kernlab::predict
+    
+  )
+
+hbtot_alpha_imp %>% 
+  clean_names %>% 
+  filter(variable != "subject_id") %>% 
+  mutate(variable = fct_reorder(variable, importance)) %>% 
+  
+  ggplot(aes(x = importance, y = variable, color = variable)) +
+  geom_errorbar(aes(xmin = importance - st_dev, xmax = importance + st_dev),
+                alpha = 0.5, size = 1.3) +
+  geom_point(size = 3) +
+  theme(legend.position = "none",
+        plot.title = element_text(size = 18),
+        axis.title = element_text(size = 15),
+        axis.text = element_text(size = 12),
+        strip.text = element_text(size = 12),
+        legend.title = element_text(size = 15),
+        legend.text = element_text(size = 12)) +
+  labs(y = NULL, x = "relative importance") +
+  ggtitle("Variable importance in distinguishing CM vs UM")
+
+```
+
+### Distributions of NIRS variables by sex
+
+```{r sex_associations}
+
+df_hbox %>% 
+  dplyr::select(subject_id, status, sex, cerebral_hb_tot, cerebral_hb_tot_alpha2) %>% 
+  pivot_longer(4:5, names_to = "nirs_variable", values_to = "value") %>% 
+  
+  ggplot(aes(x = status, y = value)) +
+  geom_violin(aes(color = status)) +
+  geom_jitter(position = position_jitter(0.15), shape = 1, size = 2) +
+  stat_summary(fun = "median", geom = "crossbar", aes(color = status), size = 0.2, width = 0.5) +
+  facet_grid(nirs_variable ~ sex, scales = "free")
+
+# check for significant differences between M-F for each variable
+df_hbox %>% 
+  dplyr::select(subject_id, status, sex, cerebral_hb_tot, cerebral_hb_tot_alpha2) %>% 
+  pivot_longer(4:5, names_to = "nirs_variable", values_to = "value") %>% 
+  
+  group_by(status, nirs_variable) %>% 
+  nest() %>% 
+  
+  mutate(wilcox = map(.x = data,
+                      .f = ~ wilcox.test(.x %>% filter(sex == "Female") %>% pull(value),
+                                         .x %>% filter(sex == "Male") %>% pull(value)))) %>% 
+  mutate(p_val = map(.x = wilcox, .f = ~.x$p.value)) %>% 
+  unnest(cols = c(p_val)) %>% 
+  
+  knitr::kable()
+
+```
+
+**no sex differences in distributions of NIRS variables in each patient group**
