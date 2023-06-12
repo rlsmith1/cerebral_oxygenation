@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Link cerebral_oxygenation repo with data on Dataverse
-        uses: lowlighter/metrics@latest
+        uses: atrisovic/dataverse-uploader@master
         with:
           DATAVERSE_TOKEN: fad3135f-e514-43c2-9241-5c98d1fa8a2c
           DATAVERSE_SERVER: https://dataverse.harvard.edu
