@@ -6,10 +6,9 @@
 # libraries ---------------------------------------------------------------
 
 
-  library(tidyverse)
-  library(readxl)
-
-
+library(tidyverse)
+library(readxl)
+library(data.table)
 
 # load data ---------------------------------------------------------------
 
@@ -80,7 +79,7 @@
   df_hbox %>% colnames()
       # fix Status and subject_id to match other dfs
       df_hbox <- df_hbox %>% 
-        rename("subject_id" = "Subject ID and Visit") %>% 
+        dplyr::rename("subject_id" = "Subject ID and Visit") %>% 
         dplyr::filter(Status %in% c("CM", "HC", "UM") & session.no == 1 | subject_id == "TM0003CM01") %>% 
         dplyr::filter(!grepl("blood", subject_id)) %>% 
         mutate(Status = factor(Status, levels = c("HC", "UM", "CM"))) %>% 
@@ -131,7 +130,6 @@
 
 
 
-
 # filter  ---------------------------------------------------------
 
 
@@ -158,11 +156,29 @@
   # in final analysis, remove any Hb_oxy < 20
   # df_master <- df_master %>% dplyr::filter(cerebral_hb_oxy > 20)
   
-  
+
+# 12 June 2023 adjustments ------------------------------------------------
+
+
+    # calculate age and remove DOB and datae of admission
+      #read_csv("Data/Hans_datatable_exports/malawi key data v04Jan2022.csv")
+      df_master <- df_master %>% 
+        mutate(age = `Study Date` - DOB) %>% 
+        dplyr::select(-c(`Calculated Age`, adm.date, DOB, `Study Date`)) %>% 
+
+        # convert to years
+        mutate(`age (days)` = str_remove(age, " days") %>% as.numeric(),
+               `age (years)` = `age (days)`/365 %>% round(2)) %>% 
+        dplyr::select(-age) %>% 
+        
+        # reorganize
+        select(c(subject_id, Status, session.no, order(colnames(.))))
+        
+      
   
 # export as csv -----------------------------------------------------------
 
-  write.csv(df_master, file = "Data/master_datatable.csv")
+  write.csv(df_master, file = "Data/master_datatable.csv", row.names = FALSE)
 
 
   

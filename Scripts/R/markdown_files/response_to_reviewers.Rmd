@@ -42,7 +42,7 @@ base_dir <- "/Users/ray/Library/CloudStorage/OneDrive-NationalInstitutesofHealth
 #load(paste0(base_dir, "objects/bandpass_filtered_dfa_results.Rdata"))
 #load(paste0(base_dir, "objects/sims.Rdata"))
 
-font_import()
+#font_import()
 
 # set plot theme
 theme_set(theme_bw() +
@@ -59,16 +59,15 @@ theme_set(theme_bw() +
 
 # read in data
 
-df_hbox <- read_csv(paste0(base_dir, "Data/Hans_datatable_exports/malawi key data v04Jan2022.csv")) %>% 
+df_hbox <- read_csv(paste0(base_dir, "Data/master_datatable.csv")) %>% 
   as_tibble() %>% 
   janitor::clean_names() %>% 
   mutate(status = replace(status, status == "HV", "HC")) %>% 
-  dplyr::rename("subject_id" = "subject_id_session") %>% 
-  
+
   dplyr::filter(status %in% c("CM", "HC", "UM") & session_no == 1 | subject_id == "TM0003CM01") %>% 
   dplyr::filter(!grepl("blood", subject_id)) %>% 
   mutate(status = factor(status, levels = c("HC", "UM", "CM"))) %>% 
-  mutate_at(c("bp_dias", "bp_sys", "glucose", "lactate"), as.numeric) %>% # converts remaining character variables to numerics
+  mutate_at(c("bp_diastolic", "bp_systolic", "glucose", "lactate"), as.numeric) %>% # converts remaining character variables to numerics
   select(subject_id, status, everything()) %>% 
   group_by(status)
 
@@ -319,4 +318,21 @@ df_hbox %>%
 
 ```
 
+## Editor
+
+```{r ed}
+
+# final terms used in model
+final_voi <- c("cerebral_hb_tot", "cerebral_hb_tot_alpha2", "hematocrit", "lactate")
+
+# create df from just these variables
+df_model <- df_hbox %>% 
+  clean_names %>% 
+  dplyr::select(c(subject_id, status, sex, all_of(final_voi))) %>% 
+  filter(status != "HC")
+df_model
+
+l_hbtot_filt_brain[[10]] %>% mean(THC, na.rm = TRUE)
+
+```
 
