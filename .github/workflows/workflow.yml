@@ -12,3 +12,4 @@ jobs:
           DATAVERSE_TOKEN: fad3135f-e514-43c2-9241-5c98d1fa8a2c
           DATAVERSE_SERVER: https://dataverse.harvard.edu
           DATAVERSE_DATASET_DOI: doi:10.7910/DVN/JQDBIM
+          PUBLISH: True
