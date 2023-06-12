@@ -78,7 +78,7 @@ df_clinical_res <- 1:length(clinical_voi) %>%
   add_row(df_sex, .before = 2) 
 
 # export to CSV
-write.csv(df_clinical_res, file = "Outputs/table_1.csv")
+write.csv(df_clinical_res, file = "Outputs/table_1.csv", row.names = FALSE)
 
 
 
