@@ -31,11 +31,18 @@ library(scales)
 library(reshape)
 library(extrafont)
 library(grDevices)
+library(psych)
 
 # Load data
-load("objects/glm_model.Rdata")
-load("objects/bandpass_filtered_dfa_results.Rdata")
-load("objects/sims.Rdata")
+base_dir <- "/Users/ray/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Ackerman Lab 2019-2021/cerebral_oxygenation/"
+
+load(paste0(base_dir, "objects/20221125_final_glm_models.Rdata"))
+load(paste0(base_dir, "objects/glm_model.Rdata"))
+load(paste0(base_dir, "objects/brain_bandpass_filtered_dfa_results.Rdata"))
+load(paste0(base_dir, "objects/sims.Rdata"))
+
+# ALT LOADING: these objects are located in a directory 3 levels above, i.e.:
+load("../../../objects/20221125_final_glm_models.Rdata")
 
 font_import()
 
@@ -45,7 +52,7 @@ font_import()
 
 # read in data
 
-df_hbox <- read_csv("Data/Hans_datatable_exports/malawi key data v04Jan2022.csv") %>% 
+df_hbox <- read_csv(paste0(base_dir, "Data/Hans_datatable_exports/malawi key data v04Jan2022.csv")) %>% 
   as_tibble() %>% 
   janitor::clean_names() %>% 
   mutate(status = replace(status, status == "HV", "HC")) %>% 
@@ -68,7 +75,7 @@ df_hbox <- read_csv("Data/Hans_datatable_exports/malawi key data v04Jan2022.csv"
 # number of subjects 
 df_status <- df_hbox %>% 
   count() %>% 
-  pivot_wider(1:2, names_from = "status", values_from = "n") %>% 
+  pivot_wider(names_from = "status", values_from = "n") %>% 
   mutate(variable = "Number of subjects") %>% 
   dplyr::select(variable, everything()) %>% 
   mutate_if(is.numeric, as.character)
@@ -76,11 +83,11 @@ df_status <- df_hbox %>%
 # Sex
 df_sex <- df_hbox %>% 
   count(sex) %>% 
-  dplyr::filter(sex != "") %>% 
-  pivot_wider(names_from = "sex", values_from = "n") %>% 
+  pivot_wider(id_cols = "status", names_from = "sex", values_from = "n") %>% 
   mutate(perc_fem = round(Female/(Female + Male)*100, 2)) %>% 
+  dplyr::select(-c(Female, Male)) %>% 
   
-  pivot_wider(c(1,4), names_from = "status", values_from = "perc_fem") %>% 
+  pivot_wider(names_from = "status", values_from = "perc_fem") %>% 
   mutate(variable = "Sex (% female)") %>% 
   dplyr::select(variable, everything()) %>% 
   mutate_if(is.numeric, as.character)
@@ -146,7 +153,10 @@ df_cm_voi %>% count(brain_swell) %>% knitr::kable()
 # HRP
 df_cm_hrp2 <- df_cm_voi %>% 
   select(cm_voi[3]) %>% 
-  summarise_all(funs(median = median, q1 = quantile(., probs = 0.25), q3 = quantile(., probs = 0.75)), na.rm = TRUE) %>% 
+  summarise_all(funs(median = median, 
+                     q1 = quantile(., probs = 0.25), 
+                     q3 = quantile(., probs = 0.75)), 
+                na.rm = TRUE) %>% 
   unite(hrp2, 1:2, sep = " (") %>% 
   unite(hrp2, 1:2, sep = ", ") %>% 
   mutate(hrp2 = paste0(hrp2, ")")) 
@@ -259,68 +269,178 @@ df_model <- df_hbox %>%
 ```
 
 #### A. Correlations of variables within subject groups
-```{r fig3a, fig.show = "hold", out.width = "50%", fig.height = 12, fig.width = 15}
+```{r fig3a_cors}
 
-# calculate spearman correlations in each group
+# find pearson correlation across all variables of interest, including p-values and adjusted p-values
 
-f_calc_cor <- function(df, group) {
+cm_cor <- df_model %>% 
+  dplyr::filter(status == "CM") %>% 
+  dplyr::select(-c(subject_id, status)) %>% 
+  corr.test(method = "pearson", adjust = "none")
+
+um_cor <- df_model %>% 
+  dplyr::filter(status == "UM") %>% 
+  dplyr::select(-c(subject_id, status)) %>% 
+  corr.test(method = "pearson", adjust = "none")
+
+# combine into tibble
+df_fig3a <- cm_cor$r %>% 
+  as_tibble %>% 
+  mutate(var1 = colnames(.), .before = hct) %>% 
+  pivot_longer(2:ncol(.), names_to = "var2", values_to = "pearsons_r") %>% 
+  mutate(status = "CM", .before = var1) %>% 
   
-  m <- df %>%
-    dplyr::filter(status == group) %>% 
-    dplyr::select(-c(subject_id, status)) %>% 
-    cor(method = "spearman")
-  
-  diag(m) <- 0
-  
-  m
-}
-
-# create run correlations of potential regressors
-m_cor_um <- df_model_impute %>% f_calc_cor(group = "UM")
-
-m_cor_cm <- df_model_impute %>% f_calc_cor(group = "CM")
-
-# correlation matrix
-
-# write plot function
-  f_plot_cor <- function(mat) {
-  
-  melt(mat) %>% 
+  left_join(
     
-    mutate_if(is.factor, factor, levels = c("hct", "lactate", "cerebral_hb_oxy", "cerebral_hb_tot", "cerebral_hb_oxy_alpha2", "cerebral_hb_tot_alpha2")) %>% 
+    cm_cor$p %>% 
+      as_tibble %>% 
+      mutate(var1 = colnames(.), .before = hct) %>% 
+      pivot_longer(2:ncol(.), names_to = "var2", values_to = "p_value"),
     
-    ggplot(aes(x = X1, y = X2, fill = value, label = ifelse(value != 0, round(value, 2), NA))) + 
-    geom_tile() +
-    scale_fill_gradient2(low = "#4575b4", high = "#d73027") +
-    geom_text(size = 9) +
+    by = c("var1", "var2")
     
-    xlab("") +
-    ylab("") +
-    theme_bw() +
-    theme(# text = element_text(family = "Arial"),
-          axis.text.x = element_text(angle = 45, hjust = 1),
-          axis.text = element_text(size = 35),
-          legend.text = element_text(size = 40),
-          legend.title = element_text(size = 50),
-          legend.key.size = unit(2, 'cm'),
-          plot.title = element_text(size = 30)
-    )
+  ) %>% 
   
-}
+  # adjust p-values
+  mutate(adj_p_val = p.adjust(p_value, method = "BH")) %>% 
+  
+  bind_rows(
+    
+    um_cor$r %>% 
+      as_tibble %>% 
+      mutate(var1 = colnames(.), .before = hct) %>% 
+      pivot_longer(2:ncol(.), names_to = "var2", values_to = "pearsons_r") %>% 
+      mutate(status = "UM", .before = var1) %>% 
+      
+      left_join(
+        
+        um_cor$p %>% 
+          as_tibble %>% 
+          mutate(var1 = colnames(.), .before = hct) %>% 
+          pivot_longer(2:ncol(.), names_to = "var2", values_to = "p_value"),
+        
+        by = c("var1", "var2")
+        
+      ) %>% 
+      mutate(adj_p_val = p.adjust(p_value, method = "BH"))
 
-# plot
+    
+  ) %>% 
   
-  # extract legend
-  p_leg <- m_cor_um %>% f_plot_cor() %>% get_legend()
+  # set factor levels for variables
+  mutate_at(2:3, factor, levels = c("hct", "lactate", "cerebral_hb_oxy", "cerebral_hb_tot", "cerebral_hb_oxy_alpha2", "cerebral_hb_tot_alpha2")) %>% 
   
-  # create plots
-  m_cor_um %>% f_plot_cor() + ggtitle("Uncomplicated malaria") + theme(legend.position = "none")
-  
-  m_cor_cm %>% f_plot_cor() + ggtitle("Cerebral malaria") + theme(legend.position = "none")
-  
-  # as_ggplot(p_leg)
+  # set diagonal equal to zero
+  mutate(pearsons_r = ifelse(var1 == var2, 0, pearsons_r))
 
 ```
+
+```{r fig3a_sig_cors}
+
+### find lowest |r| value that corresponds to a p < 0.05
+
+t_stat_cor <- function(r, n){(r*sqrt(n - 2)) / (sqrt(1 - r^2))} # equation to calculate t-stat given correlation and n
+
+## for CM:
+
+# combine pearson's r and sample size
+df_t_cor_cm <- cm_cor$r %>% 
+  as_tibble %>% 
+  mutate(var1 = colnames(.), .before = hct) %>% 
+  pivot_longer(2:ncol(.), names_to = "var2", values_to = "pearsons_r") %>% 
+  
+  left_join(
+    
+    cm_cor$n %>% 
+      as_tibble %>% 
+      mutate(var1 = colnames(.), .before = hct) %>% 
+      pivot_longer(2:ncol(.), names_to = "var2", values_to = "n")
+    
+  ) %>% 
+  
+  # calculate t-stat of each
+  mutate(t = ifelse(pearsons_r != 1, t_stat_cor(pearsons_r, n), NA))
+
+# compare with t-distribution table
+lowest_sig_r_cm <- read_excel(paste0(base_dir, "Data/t_distribution_table.xlsx")) %>% 
+  dplyr::rename("n" = "One Tail") %>% 
+  filter(!(n %in% c("Two Tails", "df"))) %>% 
+  dplyr::select(1:2) %>% 
+  mutate(n = as.numeric(n)) %>% 
+  
+  left_join(df_t_cor_cm, by = "n") %>% 
+  filter(!is.na(t)) %>% 
+  
+  # find significance by t-value
+  mutate(is_sig = ifelse(abs(t) > `0.05`, "yes", "no")) %>% 
+  
+  # pull only significant correlations
+  filter(is_sig == "yes") %>% 
+  
+  # find lowest r value associated with significant correlation
+  slice(which.min(abs(pearsons_r))) %>% pull(pearsons_r)
+
+## repeat for UM:
+
+# combine pearson's r and sample size
+df_t_cor_um <- um_cor$r %>% 
+  as_tibble %>% 
+  mutate(var1 = colnames(.), .before = hct) %>% 
+  pivot_longer(2:ncol(.), names_to = "var2", values_to = "pearsons_r") %>% 
+  
+  left_join(
+    
+    um_cor$n %>% 
+      as_tibble %>% 
+      mutate(var1 = colnames(.), .before = hct) %>% 
+      pivot_longer(2:ncol(.), names_to = "var2", values_to = "n")
+    
+  ) %>% 
+  
+  # calculate t-stat of each
+  mutate(t = ifelse(pearsons_r != 1, t_stat_cor(pearsons_r, n), NA))
+
+# compare with t-distribution table
+lowest_sig_r_um <-  read_excel(paste0(base_dir, "Data/t_distribution_table.xlsx")) %>% 
+  dplyr::rename("n" = "One Tail") %>% 
+  filter(!(n %in% c("Two Tails", "df"))) %>% 
+  dplyr::select(1:2) %>% 
+  mutate(n = as.numeric(n)) %>% 
+  
+  left_join(df_t_cor_um, by = "n") %>% 
+  filter(!is.na(t)) %>% 
+  
+  # find significance by t-value
+  mutate(is_sig = ifelse(abs(t) > `0.05`, "yes", "no")) %>% 
+  
+  # pull only significant correlations
+  filter(is_sig == "yes") %>% 
+  
+  # find lowest r value associated with significant correlation
+  slice(which.min(abs(pearsons_r))) %>% pull(pearsons_r)
+
+```
+
+```{r fig3a}
+
+df_fig3a %>% 
+
+  ggplot(aes(x = var1, y = var2, fill = pearsons_r, label = ifelse(pearsons_r != 0, round(pearsons_r, 2), NA))) + 
+  geom_tile(aes(width = 0.9, height = 0.9)) +
+
+  facet_wrap(~ status) +
+    
+  scale_fill_gradient2(low = "#4575b4", high = "#d73027") +
+  geom_text(size = 4) +
+  
+  xlab("") +
+  ylab("") +
+  theme_classic() +
+  theme(axis.text = element_text(size = 12),
+        axis.text.x = element_text(angle = 45, hjust = 0.95))
+
+```
+In the CM group (n = 46), absolute correlation values greater 0.32 are statistically significant at a threshold of p < 0.05. In the UM group (n = 36), absolute correlation values greater than the absolute value of 0.43 are statistically significant.
 \newpage
  
 #### B. Principal component analysis
@@ -355,8 +475,8 @@ df_pnts <- my_pca$x %>%
   # plot patients
 ggplot() +
   geom_point(data = df_pnts, mapping = aes(x = PC1, y = PC2, color = status), size = 3) +
-  stat_conf_ellipse(data = df_pnts, mapping = aes(x = PC1, y = PC2, color = status, fill = status),
-                    level = 0.95, npoint = 100, bary = TRUE, alpha = 0.1, geom = "polygon") +
+  # stat_conf_ellipse(data = df_pnts, mapping = aes(x = PC1, y = PC2, color = status, fill = status),
+  #                   level = 0.95, npoint = 100, bary = TRUE, alpha = 0.1, geom = "polygon") +
   # stat_mean(data = df_pnts, mapping = aes(x = PC1, y = PC2, color = status, shape = status),
   #           na.rm = FALSE) +
   
@@ -565,7 +685,7 @@ for (i in 1:length(brain_swell_models)) {
   
 }
 
-df_brain_swell_models %>% write.csv(file = "outputs/brain_swell_models.csv")
+df_brain_swell_models %>% write.csv(file = paste0("outputs/brain_swell_models.csv"))
 
 ```
 
@@ -650,7 +770,7 @@ See manuscript draft (figure created in PowerPoint)
 #### A. Raw signal
 ```{r fig_s1a}
 
-df_figs1a <- read.table("Data/signal_segments/Hb_tot/TM0001CM01.txt")
+df_figs1a <- read.table(paste0(base_dir, "Data/signal_segments/Hb_tot/TM0001CM01.txt"))
 
 df_figs1a %>% 
   
@@ -672,19 +792,20 @@ df_figs1a %>%
 #### B. Processed signal
 ```{r fig_s1b}
 
-df_figs1b <- read.table("Data/filtered_signals/0.2s_mean_0.001_1_filt/Hb_tot/TM0001CM01.txt") %>% mutate(time = row_number())
+df_figs1b <- read.table(paste0(base_dir, "Data/filtered_signals/0.2s_mean_0.001_1_filt/Hb_tot/TM0001CM01.txt")) %>% 
+  mutate(time = row_number())
 
 df_figs1b %>% 
   ggplot(aes(x = time)) +
   geom_line(aes(y = V1)) +
 
-  lims(y = c(-0.001, 0.001)) +
+  #lims(y = c(-0.001, 0.001)) +
   
   labs(y = "Bandpass filtered signal", x = "Time") +
   ggtitle("Pre-processed signal") +
   theme_bw() +
   theme(# text = element_text(family = "Arial"),
-        axis.text = element_blank(),
+        #axis.text = element_blank(),
         axis.title = element_text(size = 25),
         legend.text = element_text(size = 15),
         legend.title = element_text(size = 20))
@@ -822,25 +943,20 @@ df_figs1f <- bind_cols(wn_alpha, pn_alpha, bn_alpha) %>%
   pivot_longer(1:3, names_to = "noise", values_to = "alpha")
 
 # create color vector
-my_col <- c("white" = "#00BFC4", "brown" = "#7CAE00", "pink" = "#F8766D")
+my_col <- c("white" = "white", "brown" = "sienna2", "pink" = "pink")
 
 # plot
 df_figs1f %>% 
   
-  ggplot(aes(x = noise, y = alpha)) +
-  geom_violin(aes(color = noise)) +
-  geom_jitter(position = position_jitter(0.2), shape = 1, size = 2) +
+  ggplot(aes(x = noise, y = alpha, color = noise)) +
+  geom_violin(fill = "transparent") +
+  geom_jitter(position = position_jitter(width = 0.1), shape = 1, size = 2) +
   stat_summary(fun = "median", geom = "crossbar", aes(color = noise), size = 0.2, width = 0.5) +
 
-  geom_hline(yintercept = 0.4, lty = 2, alpha = 0.7) +
-  geom_hline(yintercept = 0.6, lty = 2, alpha = 0.7) +
-  geom_hline(yintercept = 1.0, lty = 2, alpha = 0.7) +
-  geom_hline(yintercept = 1.5, lty = 2, alpha = 0.7) +
-  
   scale_color_manual(values = my_col) +
-  labs(x = "noise type") +
+  labs(x = "noise type", y = "alpha (\u03b1)") +
   scale_y_continuous(limits = c(0, 1.7)) +
-  theme_bw() +
+  theme_dark() +
   theme(legend.position = "none")  +
   
   theme(# text = element_text(family = "Arial"),

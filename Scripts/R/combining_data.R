@@ -1,5 +1,6 @@
 
 
+### Generate master datatable by combining data across spreadsheets
 
 
 # libraries ---------------------------------------------------------------
@@ -164,13 +165,4 @@
   write.csv(df_master, file = "Data/master_datatable.csv")
 
 
-  
-  
-
-
-
-
-
-  
-  
   

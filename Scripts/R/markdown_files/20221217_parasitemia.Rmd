@@ -1,0 +1,197 @@
+---
+title: "parasitemia"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+Identify differences in parastiemia counts between patient groups
+
+```{r setup, include = FALSE}
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      fig.height = 5.5, fig.width = 8)
+
+# libraries
+library(tidyverse)
+library(RColorBrewer)
+library(patchwork)
+library(Hmisc)
+library(corrr)
+library(tidymodels)
+library(themis)
+library(vip)
+library(janitor)
+library(kableExtra)
+library(MASS)
+
+# set theme for plots
+theme_set(theme_bw() +
+            theme(plot.title = element_text(size = 18),
+                  axis.title = element_text(size = 15),
+                  axis.text = element_text(size = 12),
+                  strip.text = element_text(size = 12),
+                  legend.title = element_text(size = 15),
+                  legend.text = element_text(size = 12)))
+
+# create color vector
+my_col <- c("CM" = "#00BFC4", "HC" = "#7CAE00", "UM" = "#F8766D")
+
+```
+
+```{r data, echo = FALSE}
+
+# load
+df_hbox <- read_csv("Data/Hans_datatable_exports/malawi key data v04Jan2022.csv") %>% 
+  as_tibble() %>% 
+  janitor::clean_names() %>% 
+  mutate(status = replace(status, status == "HV", "HC")) %>% 
+  dplyr::rename("subject_id" = "subject_id_session") %>% 
+  
+  dplyr::filter(status %in% c("CM", "HC", "UM") & session_no == 1 | subject_id == "TM0003CM01") %>% 
+  dplyr::filter(!grepl("blood", subject_id)) %>% 
+  mutate(status = factor(status, levels = c("HC", "UM", "CM"))) %>% 
+  mutate_at(c("bp_dias", "bp_sys", "glucose", "lactate"), as.numeric) %>% # converts remaining character variables to numerics
+  dplyr::select(subject_id, status, everything()) %>% 
+  group_by(status)
+
+# format
+  # define clinical variables of interest
+  clinical_voi <- c("age_calc", "temperature", "hr", "bp_sys", "bp_dias", "resp_rate", "pulse_ox", "hct", "lactate", "glucose", "aa_arg")
+  hbox_voi <- c("cerebral_hb_tot", "cerebral_hb_tot_alpha2")
+  
+  # select clinical VOI
+  df_model <- df_hbox %>% 
+    dplyr::select(c(status, sex, all_of(hbox_voi), all_of(clinical_voi))) %>% 
+    mutate(sex_coded = ifelse(sex == "Female", 1, 0)) %>% 
+    dplyr::select(-sex)
+  
+  # impute missing data with median by group
+  f_impute <- function(x, na.rm = TRUE) (replace(x, is.na(x), median(x, na.rm = na.rm)))
+  
+  df_model_impute <- df_model %>% 
+    group_by(status) %>% 
+    mutate_at(2:ncol(.), f_impute) %>% 
+    ungroup() 
+
+```
+
+## Parasite counts in each patient group
+```{r parasite_counts}
+
+df_parasite_counts <- df_hbox %>% 
+  dplyr::select(parasites) %>% 
+  dplyr::count(parasites) %>% 
+  pivot_wider(id_cols = parasites, names_from = status, values_from = n) %>% 
+  dplyr::filter(!is.na(parasites)) %>% # 1 CM patient had no value for parasites
+  dplyr::mutate_if(is.numeric, ~ ifelse(is.na(.x), 0, .x))
+
+df_parasite_counts %>% knitr::kable(align = rep('c', 4))
+
+# plot
+df_parasite_counts %>% 
+  pivot_longer(2:ncol(.), names_to = "status", values_to = "count") %>% 
+  dplyr::mutate(status = factor(status, levels = c("HC", "UM", "CM")),
+         parasites = factor(parasites, levels = c("Neg", "1+", "2+", "3+", "4+", "5+")),
+         count = ifelse(count == 0, NA_real_, count)) %>% 
+  
+  ggplot(aes(x = parasites, y = count, fill = status)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = my_col) +
+  ylab("") +
+  ggtitle("Parasite counts in each patient group")
+
+```
+
+## Statistical tests to compare parasites in each patient group
+
+### Chi-squared
+```{r chisq}
+
+# Chi-squared of UM vs CM
+chisq.test(df_parasite_counts %>% 
+             dplyr::select(-HC) %>% 
+             as.data.frame %>% 
+             column_to_rownames("parasites")
+)
+
+```
+
+### Ordinal regression (?)
+```{r ord}
+
+df_parasites <- df_hbox %>% 
+  dplyr::select(parasites) %>% 
+  mutate(parasites = factor(parasites, levels = c("Neg", "1+", "2+", "3+", "4+", "5+")))
+
+ord <- polr(status ~ parasites, data = df_parasites, Hess = TRUE)
+tidy(ord) %>% 
+  mutate(p_val = pnorm(abs(statistic), lower.tail = FALSE)*2) %>% 
+  clean_names %>% 
+  dplyr::rename("coefficient" = "estimate",
+                "t_stat" = "statistic")
+
+```
+
+### Chi-squared (binarize parasites variable)
+```{r chisq_bin}
+
+df_parasite_counts_binned <- df_parasite_counts %>% 
+  mutate(parasites_bin = ifelse(parasites %in% c("Neg", "1+", "2+", "3+"),
+                                "low", "high") %>% 
+           factor(levels = c("low", "high"))) %>% 
+  dplyr::select(parasites_bin, UM, CM) %>% 
+  group_by(parasites_bin) %>% 
+  summarise(UM = sum(UM), CM = sum(CM))
+
+df_parasite_counts_binned %>% knitr::kable(align = rep('c', 3))
+
+# Chi-squared of UM vs CM
+chisq.test(df_parasite_counts_binned %>% 
+             as.data.frame %>% 
+             column_to_rownames("parasites_bin")
+)
+
+```
+
+### Logistic regression (binarize parasites variable)
+```{r logreg}
+
+df_parasites_binned <- df_parasites %>% 
+  mutate(parasites_bin = ifelse(parasites %in% c("Neg", "1+", "2+", "3+"),
+                                "low", "high") %>% 
+           factor(levels = c("low", "high")))
+
+
+# Chi-squared of UM vs CM
+logreg <- glm(status ~ parasites_bin, data = df_parasites_binned, family = "binomial")
+tidy(logreg) %>% 
+  clean_names %>% 
+  dplyr::rename("coefficient" = "estimate",
+                "t_stat" = "statistic")
+
+```
+
+### HRP & parasitemia in CM patients
+```{r parasitemia}
+
+cm_voi <- c("hrp2", "parasitemia")
+
+df_cm_voi <- df_hbox %>% 
+  ungroup %>% 
+  filter(status == "CM") %>% 
+  dplyr::select_at(cm_voi)
+  
+# HRP
+df_cm_hrp2_parasitemia <- df_cm_voi %>% 
+  summarise_all(funs(median = median, 
+                     q1 = quantile(., probs = 0.25), 
+                     q3 = quantile(., probs = 0.75)), 
+                na.rm = TRUE) %>% 
+  mutate(hrp2 = paste0(hrp2_median, " (", hrp2_q1, ", ", hrp2_q3, ")"),
+         parasitemia = paste0(parasitemia_median, " (", parasitemia_q1, ", ", parasitemia_q3, ")")) %>% 
+  dplyr::select(hrp2, parasitemia)
+
+df_cm_hrp2_parasitemia %>% knitr::kable(align = rep('c', 2))
+
+```
+

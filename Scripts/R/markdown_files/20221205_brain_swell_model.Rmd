@@ -1,0 +1,151 @@
+---
+output: pdf_document
+---
+
+Characterize the relationship between brain swelling and cerebral Hb_tot
+
+```{r setup, include = FALSE}
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      fig.height = 5.5, fig.width = 8)
+
+# libraries
+library(tidyverse)
+library(RColorBrewer)
+library(gridExtra)
+library(patchwork)
+library(Hmisc)
+library(corrr)
+library(tidymodels)
+library(themis)
+library(vip)
+library(janitor)
+library(kableExtra)
+
+# set theme for plots
+theme_set(theme_bw() +
+            theme(plot.title = element_text(size = 18),
+                  axis.title = element_text(size = 15),
+                  axis.text = element_text(size = 12),
+                  strip.text = element_text(size = 12),
+                  legend.title = element_text(size = 15),
+                  legend.text = element_text(size = 12)))
+
+# create color vector
+my_col <- c("CM" = "#00BFC4", "HC" = "#7CAE00", "UM" = "#F8766D")
+
+```
+
+```{r data, echo = FALSE}
+
+# load
+df_hbox <- read_csv("Data/Hans_datatable_exports/malawi key data v04Jan2022.csv") %>% 
+  as_tibble() %>% 
+  janitor::clean_names() %>% 
+  mutate(status = replace(status, status == "HV", "HC")) %>% 
+  dplyr::rename("subject_id" = "subject_id_session") %>% 
+  
+  dplyr::filter(status %in% c("CM", "HC", "UM") & session_no == 1 | subject_id == "TM0003CM01") %>% 
+  dplyr::filter(!grepl("blood", subject_id)) %>% 
+  mutate(status = factor(status, levels = c("HC", "UM", "CM"))) %>% 
+  mutate_at(c("bp_dias", "bp_sys", "glucose", "lactate"), as.numeric) %>% # converts remaining character variables to numerics
+  select(subject_id, status, everything()) %>% 
+  group_by(status) %>% 
+  mutate(log10_cerebral_hb_tot = log10(cerebral_hb_tot))
+  
+```
+
+```{r fig1}
+
+# extract hb_tot and hb_oxy for the brain and muscle
+df_fig1 <- df_hbox %>% 
+  select(contains(c("hb_tot","hb_oxy")), -contains(c("alpha", "bsl"))) %>%
+  ungroup() %>% 
+  pivot_longer(2:ncol(.), names_to = "variable", values_to = "value") %>% 
+  separate(variable, into = c("tissue", "variable"), sep = "_", extra = "merge")
+
+# create color vector
+my_col <- c("CM" = "#00BFC4", "HC" = "#7CAE00", "UM" = "#F8766D")
+
+# plot
+df_fig1 %>% 
+  
+  ggplot(aes(x = status, y = value)) +
+  geom_violin(aes(color = status)) +
+  geom_jitter(position = position_jitter(0.2), shape = 1, size = 2) +
+  stat_summary(fun = "median", geom = "crossbar", aes(color = status), size = 0.2, width = 0.5) +
+  facet_grid(variable ~ tissue, scales = "free_y") +
+  
+  scale_color_manual(values = my_col) +
+  labs(x = "") +
+  theme_bw() +
+  theme(legend.position = "none")  +
+  
+  theme(# text = element_text(family = "Arial"),
+        strip.text = element_text(size = 15),
+        axis.title = element_text(size = 15),
+        axis.title.y = element_blank(),
+        axis.text = element_text(size = 15))
+
+```
+
+
+## Brain swell model fitting
+
+
+1. Log10-transformed Hb_tot vs brain swelling – with hematocrit indicated by plotting character size (with all data points represented)
+2. A simple plot of hct vs brain swelling for my own understanding of that relationship.
+
+```{r plot}
+
+df_hbox %>%
+  ggplot(aes(x = log10_cerebral_hb_tot, y = brain_swell)) +
+  geom_point(aes(size = hct), shape = 1) +
+
+  geom_smooth(method = "lm", lty = 2, color = "#696969", alpha = 0.2, se = FALSE) +
+
+  theme_bw() +
+  ggtitle("1. Relationship between brain swell score and log10-transformed cerebral Hb_tot") +
+  theme(strip.text = element_text(size = 15),
+        axis.title = element_text(size = 15),
+        axis.title.y = element_text(size = 15),
+        axis.text = element_text(size = 15),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10))
+
+df_hbox %>%
+  ggplot(aes(x = hct, y = brain_swell)) +
+  geom_point(shape = 1, size = 2) +
+
+  geom_smooth(method = "lm", lty = 2, color = "#696969", alpha = 0.2, se = FALSE) +
+  theme_bw() +
+  ggtitle("2. Relationship between hematocrit & brain swell score") +
+  theme(strip.text = element_text(size = 15),
+        axis.title = element_text(size = 15),
+        axis.title.y = element_text(size = 15),
+        axis.text = element_text(size = 15),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10))
+
+```
+
+
+<!-- ```{r brain_swell} -->
+
+<!-- cor.test( ~ brain_swell + log10_cerebral_hb_tot,  -->
+<!--           data = df_hbox, -->
+<!--           method = "spearman") -->
+
+<!-- lm(brain_swell ~ log10_cerebral_hb_tot, data = df_hbox) %>% summary -->
+
+<!-- lm(brain_swell ~ log10_cerebral_hb_tot + hct, data = df_hbox) %>% summary -->
+
+<!-- lm(brain_swell ~ log10_cerebral_hb_tot + cerebral_hb_tot_alpha2, data = df_hbox) %>% summary -->
+
+<!-- lm(brain_swell ~ log10_cerebral_hb_tot + cerebral_hb_tot_alpha2 + hct, data = df_hbox) %>% summary -->
+
+<!-- lm(brain_swell ~ log10_cerebral_hb_tot + cerebral_hb_tot_alpha2, data = df_hbox) %>% summary -->
+
+<!-- lm(brain_swell ~ cerebral_hb_oxy + cerebral_hb_oxy_alpha2 + log10_cerebral_hb_tot, data = df_hbox) %>% summary -->
+
+<!-- ``` -->

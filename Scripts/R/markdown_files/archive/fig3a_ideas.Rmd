@@ -1,0 +1,221 @@
+---
+title: "fig3a"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, comment = "", fig.height = 6, fig.width = 10)
+
+# libraries
+library(tidyverse)
+library(psych)
+library(stringr)
+
+```
+
+```{r data}
+
+# read in data
+
+df_hbox <- read_csv("Data/Hans_datatable_exports/malawi key data v04Jan2022.csv") %>% 
+  as_tibble() %>% 
+  janitor::clean_names() %>% 
+  mutate(status = replace(status, status == "HV", "HC")) %>% 
+  dplyr::rename("subject_id" = "subject_id_session") %>% 
+  
+  dplyr::filter(status %in% c("CM", "HC", "UM") & session_no == 1 | subject_id == "TM0003CM01") %>% 
+  dplyr::filter(!grepl("blood", subject_id)) %>% 
+  mutate(status = factor(status, levels = c("HC", "UM", "CM"))) %>% 
+  mutate_at(c("bp_dias", "bp_sys", "glucose", "lactate"), as.numeric) %>% # converts remaining character variables to numerics
+  select(subject_id, status, everything()) %>% 
+  group_by(status)
+
+```
+
+```{r fig3_data}
+
+# select model variables of interest
+model_voi <- c("subject_id", "status", 
+               "hct", "lactate",
+               "cerebral_hb_tot", "cerebral_hb_oxy",
+               "cerebral_hb_tot_alpha2", "cerebral_hb_oxy_alpha2")
+
+df_model <- df_hbox %>% 
+  select_at(model_voi) %>% 
+  
+  # remove HC
+  ungroup %>% 
+  filter(status != "HC")
+
+# impute missing data with median by group
+  f_impute <- function(x, na.rm = TRUE) (replace(x, is.na(x), median(x, na.rm = na.rm)))
+  
+  df_model_impute <- df_model %>% 
+    group_by(status) %>% 
+    mutate_at(3:ncol(.), f_impute) %>% 
+    ungroup() 
+
+```
+
+```{r fig3a_cors}
+
+# find pearson correlation across all variables of interest, including p-values and adjusted p-values
+cm_cor <- df_model %>% 
+  dplyr::filter(status == "CM") %>% 
+  dplyr::select(-c(subject_id, status)) %>% 
+  corr.test(method = "pearson", adjust = "none")
+
+um_cor <- df_model %>% 
+  dplyr::filter(status == "UM") %>% 
+  dplyr::select(-c(subject_id, status)) %>% 
+  corr.test(method = "pearson", adjust = "none")
+
+# combine into tibble
+df_fig3a <- cm_cor$r %>% 
+  as_tibble %>% 
+  mutate(var1 = colnames(.), .before = hct) %>% 
+  pivot_longer(2:ncol(.), names_to = "var2", values_to = "pearsons_r") %>% 
+  mutate(status = "CM", .before = var1) %>% 
+  
+  left_join(
+    
+    cm_cor$p %>% 
+      as_tibble %>% 
+      mutate(var1 = colnames(.), .before = hct) %>% 
+      pivot_longer(2:ncol(.), names_to = "var2", values_to = "p_value"),
+    
+    by = c("var1", "var2")
+    
+  ) %>% 
+  
+  # adjust p-values
+  mutate(adj_p_val = p.adjust(p_value, method = "BH")) %>% 
+  
+  bind_rows(
+    
+    um_cor$r %>% 
+      as_tibble %>% 
+      mutate(var1 = colnames(.), .before = hct) %>% 
+      pivot_longer(2:ncol(.), names_to = "var2", values_to = "pearsons_r") %>% 
+      mutate(status = "UM", .before = var1) %>% 
+      
+      left_join(
+        
+        um_cor$p %>% 
+          as_tibble %>% 
+          mutate(var1 = colnames(.), .before = hct) %>% 
+          pivot_longer(2:ncol(.), names_to = "var2", values_to = "p_value"),
+        
+        by = c("var1", "var2")
+        
+      ) %>% 
+      mutate(adj_p_val = p.adjust(p_value, method = "BH"))
+
+    
+  ) %>% 
+  
+  # set factor levels for variables
+  mutate_at(2:3, factor, levels = c("hct", "lactate", "cerebral_hb_oxy", "cerebral_hb_tot", "cerebral_hb_oxy_alpha2", "cerebral_hb_tot_alpha2")) %>% 
+  
+  # set diagonal equal to zero
+  mutate(pearsons_r = ifelse(var1 == var2, 0, pearsons_r))
+
+```
+
+### idea 1: put box around values significant by p-value
+```{r fig3a_v1}
+
+df_fig3a %>% 
+  mutate(is_sig = ifelse(p_value < 0.05 & var1 != var2, "yes", "no")) %>% 
+  
+  ggplot(aes(x = var1, y = var2, fill = pearsons_r, label = ifelse(pearsons_r != 0, round(pearsons_r, 2), NA))) + 
+  geom_tile(aes(width = 0.9, height = 0.9)) +
+  geom_tile(aes(color = is_sig, width = 0.9, height = 0.9), size = 1, show.legend = FALSE) +
+  
+  facet_wrap(~ status) +
+    
+  scale_color_manual(values = c("white", "black")) +
+  scale_fill_gradient2(low = "#4575b4", high = "#d73027") +
+  geom_text(size = 4) +
+  
+  xlab("") +
+  ylab("") +
+  theme_classic() +
+  theme(axis.text = element_text(size = 12),
+        axis.text.x = element_text(angle = 45, hjust = 0.95))
+
+```
+
+### idea 2: put box around values significant by BH-adjusted p-value
+```{r fig3a_v2}
+
+df_fig3a %>% 
+  mutate(is_sig = ifelse(adj_p_val < 0.05 & var1 != var2, "yes", "no")) %>% 
+  
+  ggplot(aes(x = var1, y = var2, fill = pearsons_r, label = ifelse(pearsons_r != 0, round(pearsons_r, 2), NA))) + 
+  geom_tile(aes(width = 0.9, height = 0.9)) +
+  geom_tile(aes(color = is_sig, width = 0.9, height = 0.9), size = 1, show.legend = FALSE) +
+  
+  facet_wrap(~ status) +
+    
+  scale_color_manual(values = c("white", "black")) +
+  scale_fill_gradient2(low = "#4575b4", high = "#d73027") +
+  geom_text(size = 4) +
+  
+  xlab("") +
+  ylab("") +
+  theme_classic() +
+  theme(axis.text = element_text(size = 12),
+        axis.text.x = element_text(angle = 45, hjust = 0.95))
+
+```
+
+### idea 3: add p-value to box label
+```{r fig3a_v3}
+
+df_fig3a %>% 
+  mutate(label = paste0(round(pearsons_r, 2), " ", round(p_value, 2))) %>% 
+  mutate(label = ifelse(var1 == var2, NA, label)) %>% 
+  mutate(label = str_wrap(label, width = 2)) %>% 
+
+  ggplot(aes(x = var1, y = var2, fill = pearsons_r, label = label)) + 
+  geom_tile(aes(width = 0.95, height = 0.95)) +
+
+  facet_wrap(~ status) +
+    
+  scale_fill_gradient2(low = "#4575b4", high = "#d73027") +
+  geom_text(size = 3) +
+  
+  xlab("") +
+  ylab("") +
+  theme_classic() +
+  theme(axis.text = element_text(size = 12),
+        axis.text.x = element_text(angle = 45, hjust = 0.95))
+
+```
+
+### idea 3: add BH-adjusted p-value to box label
+```{r fig3a_v4}
+
+df_fig3a %>% 
+  mutate(label = paste0(round(pearsons_r, 2), " ", round(adj_p_val, 2))) %>% 
+  mutate(label = ifelse(var1 == var2, NA, label)) %>% 
+  mutate(label = str_wrap(label, width = 2)) %>% 
+
+  ggplot(aes(x = var1, y = var2, fill = pearsons_r, label = label)) + 
+  geom_tile(aes(width = 0.95, height = 0.95)) +
+
+  facet_wrap(~ status) +
+    
+  scale_fill_gradient2(low = "#4575b4", high = "#d73027") +
+  geom_text(size = 3) +
+  
+  xlab("") +
+  ylab("") +
+  theme_classic() +
+  theme(axis.text = element_text(size = 12),
+        axis.text.x = element_text(angle = 45, hjust = 0.95))
+
+```
+

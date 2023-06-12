@@ -1,6 +1,9 @@
 
 
 
+### Select signal segments for each NIRS signal that doesn't have 'blips'
+
+
 # read in data -------------------------------------------------------------------------
 
   library(tidyverse)

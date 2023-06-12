@@ -1,0 +1,322 @@
+---
+title: "Cerebral oxygenation manuscript response to reviewers"
+date: "last updated: `r Sys.Date()`"
+output: pdf_document
+---
+
+<style type="text/css">
+  body{
+  font-family: Arial;
+  font-size: 12pt;
+}
+</style>
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, comment = "", fig.height = 6, fig.width = 10, 
+                      fig.align = 'center')
+
+# Load libraries
+library(tidyverse)
+library(readxl)
+library(DescTools)
+library(janitor)
+library(FSA)
+library(factoextra)
+library(ggrepel)
+library(ggpubr)
+library(tidymodels)
+library(vip)
+library(scales)
+library(reshape)
+library(extrafont)
+library(grDevices)
+library(psych)
+library(patchwork)
+
+# Load data
+base_dir <- "/Users/ray/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Ackerman Lab 2019-2021/cerebral_oxygenation/"
+
+# ALT LOADING: use base_dir
+#load(paste0(base_dir, "objects/20221125_final_glm_models.Rdata"))
+#load(paste0(base_dir, "objects/bandpass_filtered_dfa_results.Rdata"))
+#load(paste0(base_dir, "objects/sims.Rdata"))
+
+font_import()
+
+# set plot theme
+theme_set(theme_bw() +
+              theme(plot.title = element_text(size = 15),
+                    axis.title = element_text(size = 15),
+                    axis.text = element_text(size = 15),
+                    strip.text = element_text(size = 15),
+                    legend.title = element_text(size = 15),
+                    legend.text = element_text(size = 12)))
+
+```
+
+```{r data}
+
+# read in data
+
+df_hbox <- read_csv(paste0(base_dir, "Data/Hans_datatable_exports/malawi key data v04Jan2022.csv")) %>% 
+  as_tibble() %>% 
+  janitor::clean_names() %>% 
+  mutate(status = replace(status, status == "HV", "HC")) %>% 
+  dplyr::rename("subject_id" = "subject_id_session") %>% 
+  
+  dplyr::filter(status %in% c("CM", "HC", "UM") & session_no == 1 | subject_id == "TM0003CM01") %>% 
+  dplyr::filter(!grepl("blood", subject_id)) %>% 
+  mutate(status = factor(status, levels = c("HC", "UM", "CM"))) %>% 
+  mutate_at(c("bp_dias", "bp_sys", "glucose", "lactate"), as.numeric) %>% # converts remaining character variables to numerics
+  select(subject_id, status, everything()) %>% 
+  group_by(status)
+
+```
+
+## Reviewer 2
+
+### Minor comment 1
+
+```{r r2c1, fig.height = 10, fig.width = 15}
+
+# MEDIAN (25th, 75th)
+df_hbox %>% 
+  filter(status == "CM") %>% 
+  ungroup %>% 
+  select(hrp2, parasitemia) %>% 
+  pivot_longer(1:ncol(.), names_to = "variable", values_to = "value") %>% 
+  group_by(variable) %>% 
+  summarize(median = median(value, na.rm = TRUE),
+            `25th` = quantile(value, probs = 0.25, na.rm = TRUE), 
+            `75th` = quantile(value, probs = 0.75, na.rm = TRUE)
+  ) %>% 
+
+  knitr::kable()
+
+# TEST FOR NORMALITY
+features <- c("hrp2", "parasitemia", "cerebral_hb_tot", "muscle_hb_tot", "cerebral_hb_tot_alpha2", "muscle_hb_tot_alpha2")
+
+df_normality <- df_hbox %>% 
+  filter(status == "CM") %>% 
+  ungroup %>% 
+  select_at(features) %>% 
+  pivot_longer(1:ncol(.), names_to = "feature", values_to = "value") %>%
+  group_by(feature) %>% 
+  mutate(sw_p = shapiro.test(value)$p.value,
+         sw_p = ifelse(sw_p < 0.05, scientific(sw_p, digits = 3), as.character(round(sw_p, 2))),
+         sw_p = paste0("SW p = ", sw_p),
+
+         xmin = density(value, na.rm = TRUE)$x %>% min %>% floor,
+         xmax = density(value, na.rm = TRUE)$x %>% max %>% ceiling,
+         ymin = density(value, na.rm = TRUE)$y %>% min %>% floor,
+         ymax = density(value, na.rm = TRUE)$y %>% max %>% ceiling
+         
+  ) 
+  
+df_text <- df_normality %>% 
+  dplyr::select(-value) %>% 
+  distinct() %>% 
+  mutate(x = xmax - 0.1*xmax,
+         y = ymax - 0.1*ymax) %>% 
+  dplyr::select(-contains("min"), -contains("max")) %>% 
+  dplyr::rename("label" = "sw_p")
+
+p_sw <- df_normality %>% 
+  ggplot(aes(x = value)) +
+  geom_density(trim = FALSE) +
+  geom_text(
+    data = df_text,
+    aes(x = Inf, y = Inf, label = label),
+    hjust = 1,
+    vjust = 1,
+    size = 5
+  ) + 
+  labs(y = "") +
+  facet_wrap(vars(feature), scales = "free")
+
+# PLOT CORRELATIONS BETWEEN QUANTITATIVE PARASITEMIA MEASUREMENTS IN CM AND CEREBRAL HBTOT
+p_hrp2_cerebral <- df_hbox %>% 
+  filter(status == "CM") %>% 
+  
+  ggplot(aes(x = log10(hrp2), y = log10(cerebral_hb_tot))) +
+  geom_point(size = 4, shape = 1) +
+  geom_smooth(method = "lm") +
+  stat_cor(size = 5) +
+  labs(x = paste0("log10(HRP2) (ng/\u03bcL)"), y = "log10(cerebral Hbtot)") +
+  ggtitle("NIRS-derived cerebral Hbtot and HRP2 in children with CM") +
+  theme_bw() +
+  theme(axis.text = element_text(size = 15),
+        axis.title = element_text(size = 15))
+
+p_parasitemia_cerebral <- df_hbox %>% 
+  filter(status == "CM") %>% 
+  
+  ggplot(aes(x = log10(parasitemia), y = log10(cerebral_hb_tot))) +
+  geom_point(size = 4, shape = 1) +
+  geom_smooth(method = "lm") +
+  stat_cor(size = 5) +
+  labs(x = "log10(parasitemia) (RBCs/\u03bcL)", y = "log10(cerebral Hbtot)") +
+  ggtitle("NIRS-derived cerebral Hbtot and parasitemia in children with CM") +
+  theme_bw() +
+  theme(axis.text = element_text(size = 15),
+        axis.title = element_text(size = 15))
+
+# PLOT CORRELATIONS BETWEEN QUANTITATIVE PARASITEMIA MEASUREMENTS IN CM AND MUSCle HBTOT
+p_hrp2_muscle <- df_hbox %>% 
+  filter(status == "CM") %>% 
+  
+  ggplot(aes(x = log10(hrp2), y = muscle_hb_tot)) +
+  geom_point(size = 4, shape = 1) +
+  geom_smooth(method = "lm") +
+  stat_cor(size = 5) +
+  xlim(c(2.5, 4.5)) +
+  labs(x = paste0("log10(HRP2) (ng/\u03bcL)"), y = bquote(`Muscle Hb`[tot])) +
+  ggtitle("NIRS-derived muscle Hbtot and HRP2 in children with CM") +
+  theme_bw() +
+  theme(axis.text = element_text(size = 15),
+        axis.title = element_text(size = 15))
+
+p_parasitemia_muscle <- df_hbox %>% 
+  filter(status == "CM") %>% 
+  
+  ggplot(aes(x = log10(parasitemia), y = muscle_hb_tot)) +
+  geom_point(size = 4, shape = 1) +
+  geom_smooth(method = "lm") +
+  stat_cor(size = 5) +
+  labs(x = "log10(parasitemia) (RBCs/\u03bcL)", y = bquote(`muscle Hb`[tot])) +
+  ggtitle("NIRS-derived muscle Hbtot and parasitemia in children with CM") +
+  theme_bw() +
+  theme(axis.text = element_text(size = 15),
+        axis.title = element_text(size = 15))
+
+# PLOT CORRELATIONS BETWEEN QUANTITATIVE PARASITEMIA MEASUREMENTS IN CM AND CEREBRAL HBTOT ALPHA
+p_hrp2_cerebral_alpha <- df_hbox %>% 
+  filter(status == "CM") %>% 
+  
+  ggplot(aes(x = log10(hrp2), y = cerebral_hb_tot_alpha2)) +
+  geom_point(size = 4, shape = 1) +
+  geom_smooth(method = "lm") +
+  stat_cor(size = 5) +
+  labs(x = paste0("log10(HRP2) (ng/\u03bcL)"), y = "Cerebral Hbtot alpha") +
+  ggtitle("NIRS-derived cerebral Hbtot alpha and HRP2 in children with CM") +
+  theme_bw() +
+  theme(axis.text = element_text(size = 15),
+        axis.title = element_text(size = 15))
+
+p_parasitemia_cerebral_alpha <- df_hbox %>% 
+  filter(status == "CM") %>% 
+  
+  ggplot(aes(x = log10(parasitemia), y = cerebral_hb_tot_alpha2)) +
+  geom_point(size = 4, shape = 1) +
+  geom_smooth(method = "lm") +
+  stat_cor(size = 5) +
+  labs(x = "log10(parasitemia) (RBCs/\u03bcL)", y = "Cerebral Hbtot alpha") +
+  ggtitle("NIRS-derived cerebral Hbtot alpha and parasitemia in children with CM") +
+  theme_bw() +
+  theme(axis.text = element_text(size = 15),
+        axis.title = element_text(size = 15))
+
+# PLOT CORRELATIONS BETWEEN QUANTITATIVE PARASITEMIA MEASUREMENTS IN CM AND MUSCLE HBTOT ALPHA
+p_hrp2_muscle_alpha <- df_hbox %>% 
+  filter(status == "CM") %>% 
+  
+  ggplot(aes(x = log10(hrp2), y = muscle_hb_tot_alpha)) +
+  geom_point(size = 4, shape = 1) +
+  geom_smooth(method = "lm") +
+  stat_cor(size = 5) +
+  xlim(c(2.5, 4.5)) +
+  labs(x = paste0("log10(HRP2) (ng/\u03bcL)"), y = "Muscle Hbtot alpha") +
+  ggtitle("NIRS-derived muscle Hbtot alpha and HRP2 in children with CM") +
+  theme_bw() +
+  theme(axis.text = element_text(size = 15),
+        axis.title = element_text(size = 15))
+
+p_parasitemia_muscle_alpha <- df_hbox %>% 
+  filter(status == "CM") %>% 
+  
+  ggplot(aes(x = log10(parasitemia), y = muscle_hb_tot_alpha2)) +
+  geom_point(size = 4, shape = 1) +
+  geom_smooth(method = "lm") +
+  stat_cor(size = 5) +
+  labs(x = "log10(parasitemia) (RBCs/\u03bcL)", y = "Muscle Hbtot alpha") +
+  ggtitle("NIRS-derived muscle Hbtot alpha and parasitemia in children with CM") +
+  theme_bw() +
+  theme(axis.text = element_text(size = 15),
+        axis.title = element_text(size = 15))
+
+# COMBINE PLOTS
+
+p_sw
+
+(p_hrp2_cerebral | p_parasitemia_cerebral) /
+(p_hrp2_muscle | p_parasitemia_muscle)
+
+(p_hrp2_cerebral_alpha | p_parasitemia_cerebral_alpha) /
+(p_hrp2_muscle_alpha | p_parasitemia_muscle_alpha)
+
+
+
+```
+
+## Reviewer 3
+
+### Recommendation 1
+
+```{r r3r1}
+
+# REGRESSION
+# df_hbox %>% 
+#   filter(status == "CM") %>% 
+#   
+#   ggplot(aes(x = cerebral_hb_tot, y = outcome)) +
+#   geom_point(size = 4, shape = 1) +
+#   geom_smooth(method = "lm") +
+#   stat_cor(size = 5) +
+#   labs(x = "Cerebral Hbtot", y = "Outcome") +
+#   ggtitle("Correlation between NIRS-derived cerebral Hbtot and outcome in children with CM") +
+#   theme_bw() +
+#   theme(axis.text = element_text(size = 15),
+#         axis.title = element_text(size = 15))
+
+# KRUSKAL-WALLIS
+kw_p <- kruskal.test(cerebral_hb_tot ~ outcome,
+             data = df_hbox %>%
+               filter(status == "CM") %>% 
+               mutate(outcome = as.factor(outcome))) %>% 
+  .$p.value %>% 
+  round(2)
+
+df_hbox %>%
+  filter(status == "CM") %>%
+  mutate(outcome = 
+           
+           case_when(
+             
+             outcome == 1 ~ "survival",
+             outcome == 2 ~ "survival with neurological sequelae",
+             outcome == 3 ~ "non-survival"
+             
+           ) %>% 
+           
+           factor(levels = c("survival", "survival with neurological sequelae", "non-survival"))
+           
+           ) %>% 
+
+  ggplot(aes(x = outcome, y = cerebral_hb_tot, color = outcome)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_point(size = 4, alpha = 0.5,
+             position = position_jitter(width = 0.1)) +
+  #annotate(geom = "text", label = paste0("KW p-value = ", kw_p), x = 3, y = 350, size = 5) +
+  labs(x = "", y = bquote(`Cerebral Hb`[tot])) +
+  ggtitle("Outcome and NIRS-derived cerebral Hbtot in children with CM") +
+  theme_bw() +
+  theme(axis.text = element_text(size = 15),
+        axis.title = element_text(size = 15),
+        legend.position = "none"
+        )
+
+
+```
+
+

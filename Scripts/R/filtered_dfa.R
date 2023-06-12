@@ -1,5 +1,9 @@
 
 
+
+### Run DFA on signals that have been filtered using a bandpass filter of 0.001 - 1 Hz
+
+
 # libraries ---------------------------------------------------------------
 
 

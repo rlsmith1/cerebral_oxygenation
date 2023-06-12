@@ -2,17 +2,19 @@
 title: "Cerebral malaria follow-up visit data"
 author: "Rachel Smith"
 date: "`r Sys.Date()`"
-output: html_document
+output: pdf_document
 ---
 
 ```{r setup, include = FALSE}
 
-knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, comment = "", fig.height = 6, fig.width = 10)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, comment = "", fig.height = 6, fig.width = 10, fig.align = 'center')
 
 library(tidyverse)
 library(extrafont)
 
-load("all_dfa_results.Rdata")
+base_dir <- "/Users/work/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Ackerman Lab 2019-2021/cerebral_oxygenation/"
+
+load(paste0(base_dir, "objects/all_dfa_results.Rdata"))
 
 font_import()
 
@@ -71,10 +73,10 @@ df_results_all_plot <- df_brain_dfa_results %>%
 df_results_all_plot %>% 
   
   dplyr::filter(grepl("avg_Hb", variable)) %>% 
-  mutate(measurement = ifelse(grepl("conc", variable), "THC", "O2_sat")) %>% 
-  mutate(measurement = factor(measurement, levels = c("O2_sat", "THC"))) %>% 
-  mutate(pvals = ifelse(measurement == "THC", round(thc_fu_pval, 3), round(o2sat_fu_pval, 3))) %>% 
-  mutate(ycoord = ifelse(measurement == "THC", 400, 100)) %>% 
+  mutate(measurement = ifelse(grepl("conc", variable), "Hbtot", "Hboxy")) %>% 
+  mutate(measurement = factor(measurement, levels = c("Hboxy", "Hbtot"))) %>% 
+  mutate(pvals = ifelse(measurement == "Hbtot", round(thc_fu_pval, 3), round(o2sat_fu_pval, 3))) %>% 
+  mutate(ycoord = ifelse(measurement == "Hbtot", 400, 100)) %>% 
   
   ggplot(aes(x = follow_up, y = value)) +
   geom_violin(aes(color = follow_up)) +
@@ -108,9 +110,9 @@ library(scales)
 df_results_all_plot %>% 
   
   dplyr::filter(!grepl("avg|second", variable)) %>% 
-  mutate(measurement = ifelse(grepl("conc", variable), "THC", "O2_sat")) %>% 
-  mutate(measurement = factor(measurement, levels = c("O2_sat", "THC"))) %>% 
-  mutate(pvals = ifelse(measurement == "THC", round(thc_alpha_fu_pval, 3), round(o2sat_alpha_fu_pval, 3))) %>% 
+  mutate(measurement = ifelse(grepl("conc", variable), "Hbtot", "Hboxy")) %>% 
+  mutate(measurement = factor(measurement, levels = c("Hboxy", "Hbtot"))) %>% 
+  mutate(pvals = ifelse(measurement == "Hbtot", round(thc_alpha_fu_pval, 3), round(o2sat_alpha_fu_pval, 3))) %>% 
   
   ggplot(aes(x = follow_up, y = value)) +
   geom_violin(aes(color = follow_up)) +

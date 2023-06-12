@@ -1,5 +1,7 @@
 
 
+### Correlate brain swelling score with different metrics of cognitive development
+
 
 # libraries ---------------------------------------------------------------
 
@@ -12,7 +14,7 @@
 # data --------------------------------------------------------------------
 
 
-  df_all_data <- read_xlsx("Data/malawi key data v13Dec2021.xlsx") %>% as_tibble() 
+  df_all_data <- read_xlsx("Data/Hans/datatable_exports/malawi key data v13Dec2021.xlsx") %>% as_tibble() 
   df_alpha_data <- read.csv("Data/master_datatable.csv") %>% as_tibble() %>% select(-X)
   
   
