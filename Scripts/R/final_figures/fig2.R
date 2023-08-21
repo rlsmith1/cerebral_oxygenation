@@ -24,6 +24,22 @@ df_hbox <- read_csv("Data/Hans_datatable_exports/malawi key data v04Jan2022.csv"
 
 # plot --------------------------------------------------------------------
 
+# SET THEME
+theme_set(
+  theme_bw() +
+    theme(
+      text = element_text(family = "Tahoma"),
+      plot.title = element_text(size = 20),
+      axis.title = element_text(size = 15),
+      axis.text = element_text(size = 15)
+    )
+)
+
+# DEFINE LABELS
+title <- parse(text = "Relationship~between~brain~swelling~and~cerebral~Hb[tot]")
+xlab <- parse(text = "log[10]-transformed~Hb[tot]")
+
+# PLOT
 df_hbox %>%
   
   # log10 transform data that are not normal
@@ -32,14 +48,13 @@ df_hbox %>%
   # plot
   ggplot(aes(x = log10_cerebral_hb_tot, y = brain_swell)) +
   geom_point(aes(size = hct), shape = 1) +
-  
   geom_smooth(method = "lm", lty = 2, color = "#696969", alpha = 0.2, se = FALSE) +
-  theme_bw() +
-  ggtitle("1. Relationship between brain swell score and log10-transformed cerebral Hb_tot") +
-  theme(strip.text = element_text(size = 15),
-        axis.title = element_text(size = 15),
-        axis.title.y = element_text(size = 15),
-        axis.text = element_text(size = 15),
-        legend.title = element_text(size = 12),
-        legend.text = element_text(size = 10))
+  labs(title = parse(text = title),
+       x = parse(text = xlab), y = "Brain swelling score",
+       size = "Hematocrit (%)"
+  )
 
+# SAVE AS PDF
+my_path <- "manuscript drafts/revision 3 21Aug2023/final_figures/"
+ggsave(paste0(my_path, "Fig2.pdf"),
+       height = 6, width = 8)
